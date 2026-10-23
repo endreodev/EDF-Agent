@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agente Claude</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #ffffff; --line: #e4e3df; --text: #1d1d1b; --muted: #6d6c67;
+    --accent: #c4673f; --accent-soft: #f6e6dd; --ok: #2f8a4f; --ok-soft: #e1f2e6;
+    --warn: #b7791f; --warn-soft: #fbefd9; --err: #b83a3a; --err-soft: #f8e1e1;
+    --bubble-user: #dcf2e3; --bubble-bot: #f1f0ec; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1f1f1d; --line: #33322f; --text: #ecebe6; --muted: #9c9b95;
+      --accent: #e08a5f; --accent-soft: #3a2a21; --ok: #5cc27e; --ok-soft: #1d3326;
+      --warn: #e0a84a; --warn-soft: #3a2f1c; --err: #e46d6d; --err-soft: #3d2222;
+      --bubble-user: #1f3a2a; --bubble-bot: #2a2a27;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  header .meta { color: var(--muted); font-size: 12px; margin-left: auto; text-align: right; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--warn-soft); color: var(--warn); }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.err { background: var(--err-soft); color: var(--err); }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 12px 16px; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; font-weight: 650; }
+  .chat { display: flex; flex-direction: column; height: calc(100vh - 140px); min-height: 420px; padding: 0; }
+  .chat h2 { padding: 14px 16px 0; }
+  #messages { flex: 1; overflow-y: auto; padding: 8px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 82%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--bubble-user); border-bottom-right-radius: 3px; }
+  .msg.bot { align-self: flex-start; background: var(--bubble-bot); border-bottom-left-radius: 3px; }
+  .msg .files { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+  .msg .files img { max-width: 220px; max-height: 220px; border-radius: 6px; display: block; cursor: zoom-in; }
+  .msg .files a { color: var(--accent); }
+  .attach { display: flex; align-items: center; justify-content: center; width: 40px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 18px; flex-shrink: 0; }
+  .attach:hover { border-color: var(--accent); }
+  #attachments { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px 0; border-top: 1px solid var(--line); }
+  #attachments[hidden] { display: none; }
+  .chip { position: relative; }
+  .chip img, .chip .pdf { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: 12px; background: var(--bg); }
+  .chip button { position: absolute; top: -6px; right: -6px; padding: 0 6px; border-radius: 999px; font-size: 12px; line-height: 18px; }
+  .msg .who { display: block; font-size: 12px; color: var(--accent); margin-bottom: 2px; }
+  .msg time { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; text-align: right; }
+  .empty { color: var(--muted); text-align: center; margin: auto; }
+  form.send { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+  textarea, input { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  textarea { resize: none; height: 44px; }
+  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { font: inherit; font-weight: 600; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--err); }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  .running-text { margin: 0 0 8px; }
+  .tools { list-style: none; margin: 0 0 10px; padding: 0; font-family: var(--mono); font-size: 12px; color: var(--muted); max-height: 220px; overflow-y: auto; }
+  .tools li { padding: 2px 0; border-bottom: 1px dashed var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .project { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .project:last-of-type { border-bottom: 0; }
+  .project .name { font-weight: 650; }
+  .project .tag { font-size: 11px; background: var(--accent-soft); color: var(--accent); padding: 1px 7px; border-radius: 999px; margin-left: 6px; font-weight: 600; }
+  .project .path, .muted { color: var(--muted); font-size: 12px; word-break: break-all; }
+  .project .actions { display: flex; gap: 6px; margin-top: 6px; }
+  .addform label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; }
+  .addform textarea { height: auto; resize: vertical; }
+  select { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  input[readonly] { opacity: .65; }
+  .project .notes { font-size: 12px; margin-top: 4px; padding: 6px 8px; border-radius: 6px; background: var(--accent-soft); white-space: pre-wrap; max-height: 90px; overflow: hidden; }
+  details summary { cursor: pointer; font-weight: 600; margin-top: 8px; }
+  .addform { display: grid; gap: 8px; margin-top: 10px; }
+  #qr img { display: block; margin: 0 auto; background: #fff; padding: 8px; border-radius: 8px; max-width: 100%; }
+  pre#logs { font-family: var(--mono); font-size: 11.5px; max-height: 260px; overflow: auto; margin: 0; white-space: pre-wrap; color: var(--muted); }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 Agente Claude · WhatsApp</h1>
+  <span id="status" class="pill">carregando</span>
+  <div class="meta" id="meta"></div>
+</header>
+<main>
+  <section>
+    <div class="card chat">
+      <h2>Conversa</h2>
+      <div id="messages"><p class="empty">Nenhuma mensagem ainda.</p></div>
+      <div id="attachments" hidden></div>
+      <form class="send" id="sendForm">
+        <label class="attach" title="Anexar imagem ou PDF">📎
+          <input type="file" id="fileInput" accept="image/*,application/pdf" multiple hidden>
+        </label>
+        <textarea id="taskText" placeholder="Digite uma tarefa ou comando (/ajuda)… Cole prints com Ctrl+V. Enter envia, Shift+Enter quebra linha"></textarea>
+        <button class="primary" type="submit">Enviar</button>
+      </form>
+    </div>
+  </section>
+  <aside>
+    <div class="card" id="qrCard" hidden>
+      <h2>Conectar WhatsApp</h2>
+      <div id="qr"></div>
+      <p class="muted">WhatsApp → Aparelhos conectados → Conectar um aparelho.</p>
+    </div>
+    <div class="card">
+      <h2>Tarefa atual</h2>
+      <div id="running"><p class="muted">Nenhuma tarefa em andamento.</p></div>
+    </div>
+    <div class="card" id="queueCard" hidden>
+      <h2>Fila</h2>
+      <ol id="queue" style="margin:0;padding-left:18px"></ol>
+    </div>
+    <div class="card">
+      <h2>Projetos</h2>
+      <div id="projects"></div>
+      <details id="projEditor">
+        <summary id="projEditorTitle">+ Cadastrar projeto</summary>
+        <form class="addform" id="addForm">
+          <label>Nome <input name="name" placeholder="ex.: nivix" required></label>
+          <label>Pasta do projeto <input name="path" placeholder="C:\Users\...\pasta" required></label>
+          <label>Apelidos <span class="muted">(separados por vírgula — usados para reconhecer o projeto na mensagem)</span>
+            <input name="aliases" placeholder="nuvix, site nivix"></label>
+          <label>Descrição <textarea name="description" rows="2" placeholder="O que é o projeto, para quem é, objetivo"></textarea></label>
+          <label>Tecnologias <input name="stack" placeholder="ex.: PHP 8, MySQL, JS puro, Apache"></label>
+          <label>URL do site <input name="url" placeholder="https://..."></label>
+          <label>Como rodar / testar <input name="testCommand" placeholder="ex.: php -S localhost:8000 router.php"></label>
+          <label>Observações <span class="muted">(regras que o Claude sempre segue neste projeto)</span>
+            <textarea name="notes" rows="5" placeholder="ex.: Não alterar o layout do admin. Sempre manter textos em PT-BR. Pode fazer commit e push na branch main quando eu pedir."></textarea></label>
+          <label>Modo de permissão
+            <select name="permissionMode">
+              <option value="">Padrão do sistema</option>
+              <option value="auto">auto — autônomo com checagem de segurança</option>
+              <option value="acceptEdits">acceptEdits — só edita arquivos</option>
+              <option value="plan">plan — só planeja, não altera nada</option>
+              <option value="bypassPermissions">bypassPermissions — libera tudo</option>
+            </select></label>
+          <div style="display:flex;gap:8px">
+            <button class="primary" type="submit" id="projSubmit">Cadastrar</button>
+            <button type="button" id="projCancel" hidden onclick="resetProjectForm()">Cancelar edição</button>
+          </div>
+        </form>
+      </details>
+    </div>
+    <div class="card">
+      <h2>Números autorizados</h2>
+      <p class="muted" style="margin-top:0">Podem mandar tarefas no privado do seu WhatsApp. Você sempre tem acesso.</p>
+      <div id="senders"></div>
+      <div id="pendingBox" hidden>
+        <h2 style="margin-top:14px">Tentaram falar com o bot</h2>
+        <div id="pending"></div>
+      </div>
+      <details>
+        <summary>+ Autorizar número</summary>
+        <form class="addform" id="senderForm">
+          <input name="number" placeholder="Número com DDD (ex.: 65 99999-9999)" required>
+          <input name="name" placeholder="Nome (opcional)">
+          <button class="primary" type="submit">Autorizar</button>
+        </form>
+      </details>
+    </div>
+    <div class="card">
+      <h2>Logs</h2>
+      <pre id="logs"></pre>
+    </div>
+  </aside>
+</main>
+<div id="toast"></div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtTime = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  // Formatação estilo WhatsApp: *negrito*, _itálico_, `código`
+  const waFormat = (s) => esc(s)
+    .replace(/```([\s\S]*?)```/g, '<code>$1</code>')
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/(^|\s)\*([^*\n]+)\*/g, '$1<b>$2</b>')
+    .replace(/(^|\s)_([^_\n]+)_/g, '$1<i>$2</i>');
+
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 2500);
+  }
+
+  async function post(url, body) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || data.ok === false) throw new Error(data.error || 'Falhou');
+    refresh();
+    return data;
+  }
+
+  let lastHistoryLen = -1, lastLogsKey = '';
+
+  function render(s) {
+    const st = s.whatsapp.status;
+    const pill = $('status');
+    pill.textContent = st;
+    pill.className = 'pill' + (st === 'conectado' ? ' ok' : st === 'reconectando' ? ' err' : '');
+    $('meta').innerHTML = `${esc(s.whatsapp.user || '')}<br>modo: ${esc(s.permissionMode)} · ${s.whatsapp.chats.length ? 'conversa vinculada' : 'sem conversa vinculada (envie /vincular)'}`;
+
+    $('qrCard').hidden = !s.qr;
+    if (s.qr) $('qr').innerHTML = `<img src="${s.qr}" alt="QR Code">`;
+
+    // Conversa
+    if (s.history.length !== lastHistoryLen) {
+      const box = $('messages');
+      const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+      box.innerHTML = s.history.length
+        ? s.history.map((m) => `<div class="msg ${m.from}">${m.who ? `<b class="who">${esc(m.who)}</b>` : ''}${renderFiles(m.files)}${waFormat(m.text)}<time>${fmtTime(m.time)}</time></div>`).join('')
+        : '<p class="empty">Nenhuma mensagem ainda.</p>';
+      if (atBottom || lastHistoryLen === -1) box.scrollTop = box.scrollHeight;
+      lastHistoryLen = s.history.length;
+    }
+
+    // Tarefa atual
+    const r = s.running;
+    $('running').innerHTML = r
+      ? `<p class="running-text"><b>${esc(r.project)}</b> · ${Math.round((Date.now() - r.started) / 60000)} min<br>${esc(r.text)}</p>
+         <ul class="tools">${r.tools.slice().reverse().map((t) => `<li title="${esc(t)}">${esc(t)}</li>`).join('') || '<li>iniciando…</li>'}</ul>
+         <button class="danger" onclick="cancelTask(false)">Cancelar</button>
+         ${s.queue.length ? '<button class="danger" onclick="cancelTask(true)">Cancelar tudo</button>' : ''}`
+      : '<p class="muted">Nenhuma tarefa em andamento.</p>';
+
+    $('queueCard').hidden = !s.queue.length;
+    $('queue').innerHTML = s.queue.map((q) => `<li><b>${esc(q.project)}</b> — ${esc(q.text)}</li>`).join('');
+
+    // Projetos
+    window._projects = s.projects;
+    $('projects').innerHTML = s.projects.length
+      ? s.projects.map((p) => `
+        <div class="project">
+          <span class="name">${esc(p.name)}</span>${p.current ? '<span class="tag">atual</span>' : ''}
+          <div class="path">${esc(p.path)}</div>
+          ${p.aliases.length ? `<div class="muted">apelidos: ${esc(p.aliases.join(', '))}</div>` : ''}
+          ${p.description ? `<div class="muted">${esc(p.description)}</div>` : ''}
+          ${p.notes ? `<div class="notes">📝 ${esc(p.notes)}</div>` : ''}
+          <div class="actions">
+            <button class="small" onclick="editProject('${esc(p.name)}')">Editar</button>
+            ${p.current ? '' : `<button class="small" onclick="act('/api/projects/use','${esc(p.name)}')">Usar</button>`}
+            ${p.hasSession ? `<button class="small" onclick="act('/api/projects/new','${esc(p.name)}','Conversa reiniciada')">Nova conversa</button>` : ''}
+            <button class="small danger" onclick="removeProject('${esc(p.name)}')">Remover</button>
+          </div>
+        </div>`).join('')
+      : '<p class="muted">Nenhum projeto cadastrado.</p>';
+
+    // Números autorizados
+    window._pending = s.pendingSenders;
+    $('senders').innerHTML = s.senders.length
+      ? s.senders.map((p) => `
+        <div class="project">
+          <span class="name">${esc(p.name || p.number)}</span>
+          ${p.name ? `<div class="path">${esc(p.number)}</div>` : ''}
+          <div class="actions"><button class="small danger" onclick="removeSender('${esc(p.number)}')">Remover</button></div>
+        </div>`).join('')
+      : '<p class="muted">Nenhum outro número autorizado.</p>';
+    $('pendingBox').hidden = !s.pendingSenders.length;
+    $('pending').innerHTML = s.pendingSenders.map((p, i) => `
+      <div class="project">
+        <span class="name">${esc(p.name || p.number)}</span> <span class="muted">${esc(p.number)} · ${p.count}x · ${fmtTime(p.time)}</span>
+        <div class="path">"${esc(p.lastText)}"</div>
+        <div class="actions"><button class="small" onclick="approvePending(${i})">Autorizar</button></div>
+      </div>`).join('');
+
+    // Logs
+    const key = s.logs.length + (s.logs[s.logs.length - 1] || '');
+    if (key !== lastLogsKey) {
+      const pre = $('logs');
+      pre.textContent = s.logs.join('\n');
+      pre.scrollTop = pre.scrollHeight;
+      lastLogsKey = key;
+    }
+  }
+
+  async function refresh() {
+    try {
+      const r = await fetch('/api/state');
+      render(await r.json());
+    } catch {
+      const pill = $('status'); pill.textContent = 'sistema desligado'; pill.className = 'pill err';
+    }
+  }
+
+  async function act(url, name, msg) {
+    try { await post(url, { name }); if (msg) toast(msg); } catch (e) { toast(e.message); }
+  }
+  async function cancelTask(all) {
+    try { await post('/api/cancel', { all }); toast('Cancelando…'); } catch (e) { toast(e.message); }
+  }
+  async function removeProject(name) {
+    if (confirm(`Remover o projeto "${name}"? (a pasta não é apagada)`)) act('/api/projects/remove', name, 'Projeto removido');
+  }
+
+  async function removeSender(number) {
+    if (!confirm(`Remover o acesso de ${number}?`)) return;
+    try { await post('/api/senders/remove', { number }); toast('Acesso removido'); } catch (e) { toast(e.message); }
+  }
+  async function approvePending(i) {
+    const p = window._pending[i];
+    if (!p || !confirm(`Autorizar ${p.name || p.number} a mandar tarefas para o Claude neste computador?`)) return;
+    try { await post('/api/senders', { number: p.number, name: p.name, ids: p.ids }); toast('Número autorizado'); } catch (e) { toast(e.message); }
+  }
+  $('senderForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try { await post('/api/senders', { number: f.get('number'), name: f.get('name') }); e.target.reset(); toast('Número autorizado'); }
+    catch (err) { toast(err.message); }
+  });
+
+  function renderFiles(files) {
+    if (!files || !files.length) return '';
+    return '<div class="files">' + files.map((f) => {
+      const url = '/uploads/' + encodeURIComponent(f);
+      return /\.pdf$/i.test(f)
+        ? `<a href="${url}" target="_blank" rel="noopener">📄 ${esc(f)}</a>`
+        : `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="imagem enviada"></a>`;
+    }).join('') + '</div>';
+  }
+
+  // ----- anexos -----
+  let pendingFiles = []; // { name, type, data(base64), preview }
+  const MAX_FILE = 15 * 1024 * 1024;
+
+  function renderAttachments() {
+    const box = $('attachments');
+    box.hidden = !pendingFiles.length;
+    box.innerHTML = pendingFiles.map((f, i) => `
+      <div class="chip">
+        ${f.type === 'application/pdf' ? `<div class="pdf">PDF</div>` : `<img src="${f.preview}" alt="">`}
+        <button type="button" onclick="removeAttachment(${i})" title="Remover">×</button>
+      </div>`).join('');
+  }
+  function removeAttachment(i) { pendingFiles.splice(i, 1); renderAttachments(); }
+
+  function addFiles(list) {
+    for (const file of list) {
+      if (!/^image\/|^application\/pdf$/.test(file.type)) { toast('Só imagens ou PDF'); continue; }
+      if (file.size > MAX_FILE) { toast(`${file.name}: maior que 15 MB`); continue; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result);
+        pendingFiles.push({ name: file.name, type: file.type, data: dataUrl.split(',')[1], preview: dataUrl });
+        renderAttachments();
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  $('fileInput').addEventListener('change', (e) => { addFiles(e.target.files); e.target.value = ''; });
+  $('taskText').addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (files.length) { e.preventDefault(); addFiles(files); }
+  });
+  const chatCard = document.querySelector('.chat');
+  chatCard.addEventListener('dragover', (e) => e.preventDefault());
+  chatCard.addEventListener('drop', (e) => { e.preventDefault(); addFiles(e.dataTransfer.files); });
+
+  $('sendForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ta = $('taskText');
+    const text = ta.value.trim();
+    if (!text && !pendingFiles.length) return;
+    const files = pendingFiles.map(({ name, type, data }) => ({ name, type, data }));
+    const saved = pendingFiles;
+    ta.value = '';
+    pendingFiles = [];
+    renderAttachments();
+    try { await post('/api/task', { text, files }); }
+    catch (err) { toast(err.message); ta.value = text; pendingFiles = saved; renderAttachments(); }
+  });
+  $('taskText').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('sendForm').requestSubmit(); }
+  });
+  const PROJECT_FIELDS = ['name', 'path', 'description', 'stack', 'url', 'testCommand', 'notes', 'permissionMode'];
+
+  function editProject(name) {
+    const p = (window._projects || []).find((x) => x.name === name);
+    if (!p) return;
+    const form = $('addForm');
+    for (const f of PROJECT_FIELDS) form.elements[f].value = p[f] || '';
+    form.elements.aliases.value = (p.aliases || []).join(', ');
+    form.elements.name.readOnly = true;
+    $('projEditorTitle').textContent = `Editando: ${p.name}`;
+    $('projSubmit').textContent = 'Salvar alterações';
+    $('projCancel').hidden = false;
+    $('projEditor').open = true;
+    $('projEditor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function resetProjectForm() {
+    const form = $('addForm');
+    form.reset();
+    form.elements.name.readOnly = false;
+    $('projEditorTitle').textContent = '+ Cadastrar projeto';
+    $('projSubmit').textContent = 'Cadastrar';
+    $('projCancel').hidden = true;
+    $('projEditor').open = false;
+  }
+
+  $('addForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const body = Object.fromEntries(PROJECT_FIELDS.map((k) => [k, String(f.get(k) || '')]));
+    body.aliases = String(f.get('aliases') || '').split(',');
+    const editing = e.target.elements.name.readOnly;
+    try {
+      await post('/api/projects', body);
+      resetProjectForm();
+      toast(editing ? 'Projeto atualizado' : 'Projeto cadastrado');
+    } catch (err) { toast(err.message); }
+  });
+
+  refresh();
+  setInterval(refresh, 2000);
+</script>
+</body>
+</html>

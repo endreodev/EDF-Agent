@@ -1,0 +1,12 @@
+{
+  "allowedChats": [],
+  "allowedSenders": [],
+  "claudePath": "claude",
+  "permissionMode": "auto",
+  "model": "",
+  "taskTimeoutMin": 60,
+  "progressIntervalSec": 90,
+  "maxMessageLength": 3500,
+  "botPrefix": "🤖 ",
+  "webPort": 3000
+}
