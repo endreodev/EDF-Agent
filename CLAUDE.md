@@ -20,7 +20,7 @@ node ferramentas/f.js listar   # catálogo de ferramentas do agente (buscar | ro
 - Node >= 20, CommonJS puro, sem TypeScript e sem framework. A única exceção é `src/hostinger-guard.mjs` (ESM).
 - Não existe suíte de testes. Valide com `node --check` e, quando fizer sentido, exercitando o módulo isolado.
 - **Cuidado ao rodar `npm start` para testar:** o bot costuma estar rodando nesta máquina. Uma segunda instância usa a mesma sessão do WhatsApp (`data/auth`) e a mesma porta do painel. Para aplicar uma mudança, o processo em execução precisa ser reiniciado (com `start.bat`, basta encerrar o `node`).
-- O `config.json` é lido uma vez na subida. `config.example.json` fornece os padrões e é mesclado por baixo; campo novo de configuração entra nos dois lugares e na tabela do README.
+- O `config.json` é lido uma vez na subida. `config.example.json` fornece os padrões e é mesclado por baixo; campo novo de configuração entra nos dois lugares e na tabela de configuração em `docs/instalacao-e-uso.md`.
 - Dependências externas opcionais, chamadas por `execFile`/`spawn`: `claude`, `git`, `gh`, `python` (faster-whisper e piper-tts), `cloudflared`, `php`.
 
 ## Arquitetura
