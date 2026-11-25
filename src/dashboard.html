@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="pt-BR" data-bs-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard do agente</title>
+<script>
+  // Tema antes de pintar: claro por padrão; escuro só se a pessoa escolheu no botão.
+  (() => {
+    let t = '';
+    try { t = localStorage.getItem('tema') || ''; } catch {}
+    document.documentElement.dataset.bsTheme = t === 'dark' ? 'dark' : 'light';
+  })();
+</script>
+<link rel="stylesheet" href="/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/vendor/bootstrap-icons.min.css">
+<link rel="stylesheet" href="/tema.css">
+<style>
+  /* Só o que o Bootstrap não tem: o gráfico em SVG e alturas de rolagem. */
+  .chart svg { display: block; width: 100%; }
+  .chart .bar { fill: var(--bs-primary); }
+  .chart .bar.today { fill: var(--bs-success); }
+  .chart .col:hover .bar { opacity: .8; }
+  .chart .hit { fill: transparent; }
+  .chart .grid { stroke: var(--bs-border-color); stroke-width: 1; }
+  .chart .base { stroke: var(--bs-secondary-color); stroke-width: 1; }
+  .chart text { fill: var(--bs-secondary-color); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .chart text.val { fill: var(--bs-body-color); font-weight: 600; }
+  .scroll-330 { max-height: 330px; overflow-y: auto; }
+  .text-truncate-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .kpi-value { font-size: 1.75rem; font-weight: 500; line-height: 1.1; color: var(--bs-heading-color); }
+  .tabular { font-variant-numeric: tabular-nums; }
+  .proj-name { width: 34%; min-width: 90px; }
+  .pulse { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+</style>
+</head>
+<body class="bg-body-tertiary">
+
+<aside class="layout-menu" id="layoutMenu" aria-label="Menu">
+  <a class="app-brand" href="/"><span class="app-brand-logo"><i class="bi bi-robot"></i></span><span class="app-brand-text">agente</span></a>
+  <ul class="menu-inner">
+    <li class="menu-header">Visão geral</li>
+    <li><a class="menu-link active" aria-current="page" href="/"><i class="bi bi-house-door"></i>Dashboard</a></li>
+    <li class="menu-header">Trabalho</li>
+    <li><a class="menu-link" href="/painel#chat"><i class="bi bi-chat-dots"></i>Conversas</a></li>
+    <li><a class="menu-link" href="/painel#projects"><i class="bi bi-folder2"></i>Projetos</a></li>
+    <li class="menu-header">Integrações</li>
+    <li><a class="menu-link" href="/painel#github"><i class="bi bi-github"></i>GitHub</a></li>
+    <li><a class="menu-link" href="/painel#whatsapp"><i class="bi bi-whatsapp"></i>WhatsApp</a></li>
+    <li class="menu-header">Sistema</li>
+    <li><a class="menu-link" href="/painel#logs"><i class="bi bi-terminal"></i>Logs</a></li>
+  </ul>
+  <div class="menu-foot"><a class="btn btn-primary w-100" href="/painel#chat"><i class="bi bi-plus-lg me-1"></i>Nova tarefa</a></div>
+</aside>
+<div class="layout-overlay" onclick="toggleMenu(false)"></div>
+
+<div class="layout-page">
+<nav class="layout-navbar">
+  <button class="btn btn-link text-body p-0 menu-toggle" type="button" onclick="toggleMenu()" aria-label="Abrir menu"><i class="bi bi-list fs-3"></i></button>
+  <span class="nav-title"><i class="bi bi-house-door me-2 text-body-secondary"></i>Dashboard</span>
+  <div class="ms-auto d-flex align-items-center gap-3">
+    <span id="waBadge" class="badge text-bg-secondary"><i class="bi bi-whatsapp me-1"></i>…</span>
+    <button id="themeBtn" class="btn btn-link text-body p-0 fs-5" type="button" onclick="toggleTheme()" aria-label="Trocar tema"><i class="bi bi-moon-stars"></i></button>
+    <span class="user-avatar" title="Agente"><i class="bi bi-robot"></i></span>
+  </div>
+</nav>
+
+<main class="content-wrapper">
+  <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
+    <div>
+      <h1 class="h3 mb-1">Dashboard</h1>
+      <div id="sub" class="text-body-secondary small"></div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="loadDash(true)"><i class="bi bi-arrow-clockwise me-1"></i>Atualizar</button>
+  </div>
+
+  <div id="alertBox"></div>
+
+  <!-- Agora -->
+  <div class="card shadow-sm mb-4" id="nowCard">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-activity"></i><span class="fw-semibold" id="nowTitle">Agora</span>
+      <span class="ms-auto" id="nowActions"></span>
+    </div>
+    <ul class="list-group list-group-flush" id="nowList"></ul>
+  </div>
+
+  <!-- Indicadores -->
+  <div class="row g-3 mb-4" id="kpis">
+    <div class="col-12 text-center text-body-secondary py-4"><div class="spinner-border spinner-border-sm me-2" role="status"></div>Carregando…</div>
+  </div>
+
+  <div class="row g-4 mb-4">
+    <div class="col-xl-7">
+      <div class="card shadow-sm h-100">
+        <div class="card-header d-flex align-items-center">
+          <span class="fw-semibold"><i class="bi bi-bar-chart me-1"></i>Tarefas por dia</span>
+          <span class="badge bg-body-secondary text-body border ms-auto" id="daysTotal"></span>
+        </div>
+        <div class="card-body">
+          <div class="chart" id="chartDays"></div>
+          <div class="small text-body-secondary mt-2">Últimos 14 dias. Passe o mouse numa barra para ver os detalhes; hoje em verde.</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-xl-5">
+      <div class="card shadow-sm h-100">
+        <div class="card-header d-flex align-items-center">
+          <span class="fw-semibold"><i class="bi bi-inbox me-1"></i>Esperando você</span>
+          <span class="badge rounded-pill text-bg-danger ms-auto" id="pendCount" hidden></span>
+        </div>
+        <ul class="list-group list-group-flush scroll-330" id="pending"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 mb-4">
+    <div class="col-xl-7">
+      <div class="card shadow-sm h-100">
+        <div class="card-header d-flex align-items-center flex-wrap gap-2">
+          <span class="fw-semibold"><i class="bi bi-folder2-open me-1"></i>Por projeto · 30 dias</span>
+          <div class="btn-group btn-group-sm ms-auto" role="group" aria-label="Métrica">
+            <input type="radio" class="btn-check" name="metric" id="mMin" value="minutes" autocomplete="off" checked>
+            <label class="btn btn-outline-primary" for="mMin">Tempo</label>
+            <input type="radio" class="btn-check" name="metric" id="mCount" value="count" autocomplete="off">
+            <label class="btn btn-outline-primary" for="mCount">Tarefas</label>
+          </div>
+        </div>
+        <div class="card-body" id="projects"></div>
+      </div>
+    </div>
+    <div class="col-xl-5">
+      <div class="card shadow-sm h-100">
+        <div class="card-header d-flex align-items-center">
+          <span class="fw-semibold"><i class="bi bi-globe2 me-1"></i>Sites vigiados</span>
+          <span class="ms-auto" id="sitesBadge"></span>
+        </div>
+        <ul class="list-group list-group-flush scroll-330" id="sites"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4" id="missionsCard" hidden>
+    <div class="card-header d-flex align-items-center">
+      <span class="fw-semibold"><i class="bi bi-bullseye me-1"></i>Missões</span>
+      <span class="small text-body-secondary ms-2 d-none d-md-inline">objetivos de vários dias · crie com /missao &lt;objetivo&gt; no WhatsApp</span>
+      <span class="ms-auto" id="missionsBadge"></span>
+    </div>
+    <ul class="list-group list-group-flush" id="missions"></ul>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-header fw-semibold"><i class="bi bi-clock-history me-1"></i>Últimas tarefas</div>
+    <div class="table-responsive" id="recent"></div>
+  </div>
+</main>
+</div>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+  <div id="toast" class="toast align-items-center text-bg-dark border-0" role="status" aria-live="polite" aria-atomic="true">
+    <div class="d-flex"><div class="toast-body" id="toastBody"></div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Fechar"></button></div>
+  </div>
+</div>
+
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h2 class="modal-title fs-5" id="confirmTitle">Confirmar</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button></div>
+      <div class="modal-body" id="confirmBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Voltar</button>
+        <button type="button" class="btn btn-primary" id="confirmOk">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/vendor/bootstrap.bundle.min.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtTime = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const fmtDay = (t) => new Date(t).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+  const when = (t) => sameDay(t, Date.now()) ? fmtTime(t) : new Date(t).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + fmtTime(t);
+  const fmtMin = (m) => { m = Math.round(m || 0); return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`; };
+  const fmtDur = (ms) => { const m = Math.floor(ms / 60000); return m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`; };
+  const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+  let state = null, dash = null;
+  let metric = 'minutes';
+  try { metric = localStorage.getItem('bsMetric') || 'minutes'; } catch {}
+  $(metric === 'count' ? 'mCount' : 'mMin').checked = true;
+
+  // ----- tema -----
+  function paintThemeBtn() {
+    const dark = document.documentElement.dataset.bsTheme === 'dark';
+    $('themeBtn').innerHTML = `<i class="bi ${dark ? 'bi-sun' : 'bi-moon-stars'}"></i>`;
+    $('themeBtn').title = dark ? 'Usar tema claro' : 'Usar tema escuro';
+  }
+  function toggleTheme() {
+    const t = document.documentElement.dataset.bsTheme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.bsTheme = t;
+    try { localStorage.setItem('tema', t); } catch {}
+    paintThemeBtn();
+  }
+  paintThemeBtn();
+  // Menu lateral no celular.
+  function toggleMenu(open) { document.body.classList.toggle('menu-open', open); }
+
+  // ----- utilidades -----
+  const toastObj = new bootstrap.Toast($('toast'), { delay: 3000 });
+  function toast(msg) { $('toastBody').textContent = msg; toastObj.show(); }
+
+  const modal = new bootstrap.Modal($('confirmModal'));
+  function confirmBox(title, html, okLabel = 'Confirmar', okClass = 'btn-primary') {
+    return new Promise((resolve) => {
+      $('confirmTitle').textContent = title;
+      $('confirmBody').innerHTML = html;
+      const ok = $('confirmOk');
+      ok.textContent = okLabel;
+      ok.className = 'btn ' + okClass;
+      let done = false;
+      ok.onclick = () => { done = true; modal.hide(); resolve(true); };
+      $('confirmModal').addEventListener('hidden.bs.modal', () => { if (!done) resolve(false); }, { once: true });
+      modal.show();
+    });
+  }
+
+  async function post(url, body) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.ok === false || d.error) throw new Error(d.error || `erro ${r.status}`);
+    return d;
+  }
+
+  // Tooltips do Bootstrap: recria depois de cada renderização.
+  function tips(root) {
+    for (const el of root.querySelectorAll('[data-bs-toggle="tooltip"]')) {
+      bootstrap.Tooltip.getInstance(el)?.dispose();
+      new bootstrap.Tooltip(el, { html: true, container: 'body' });
+    }
+  }
+  function disposeTips(root) {
+    for (const el of root.querySelectorAll('[data-bs-toggle="tooltip"]')) bootstrap.Tooltip.getInstance(el)?.dispose();
+  }
+
+  // ----- dados -----
+  async function loadState() {
+    try {
+      state = await (await fetch('/api/state')).json();
+      renderLive();
+      $('alertBox').innerHTML = '';
+    } catch {
+      $('alertBox').innerHTML = '<div class="alert alert-danger d-flex align-items-center gap-2" role="alert"><i class="bi bi-exclamation-triangle-fill"></i>Sem conexão com o agente. Ele pode estar reiniciando.</div>';
+    }
+  }
+  async function loadDash(manual) {
+    try {
+      dash = await (await fetch('/api/dashboard')).json();
+      renderAll();
+      if (manual) toast('Dashboard atualizado');
+    } catch {}
+  }
+
+  // ----- parte ao vivo (a cada 2 s) -----
+  function renderLive() {
+    const s = state;
+    if (!s) return;
+    const st = s.whatsapp.status;
+    const cls = st === 'conectado' ? 'text-bg-success' : st === 'reconectando' ? 'text-bg-danger' : 'text-bg-warning';
+    $('waBadge').className = 'badge ' + cls;
+    $('waBadge').innerHTML = `<i class="bi bi-whatsapp me-1"></i>${esc(st)}`;
+
+    const h = new Date().getHours();
+    $('sub').innerHTML = [
+      `<strong class="text-body">${h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'}</strong>`,
+      new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }),
+      dash ? `no ar há ${fmtDur(dash.uptime)}` : '',
+      `${s.projects.length} projeto(s)`,
+      dash?.morning ? `resumo da manhã às ${esc(dash.morning)}` : '',
+    ].filter(Boolean).join(' <span class="mx-1">·</span> ');
+
+    const r = s.running;
+    $('nowCard').className = 'card shadow-sm mb-4' + (r.length ? ' border-primary' : '');
+    $('nowTitle').innerHTML = r.length
+      ? `<span class="spinner-grow spinner-grow-sm text-primary me-2" aria-hidden="true"></span>${r.length === 1 ? 'Trabalhando em 1 tarefa' : `Trabalhando em ${r.length} tarefas`}`
+      : 'Agente pronto';
+    $('nowActions').innerHTML = [
+      s.queue.length ? `<span class="badge text-bg-warning">${s.queue.length} na fila</span>` : '',
+      s.schedules.length ? `<span class="badge text-bg-info">${s.schedules.length} agendamento(s)</span>` : '',
+      r.length > 1 ? '<button class="btn btn-outline-danger btn-sm ms-2" onclick="cancelTask(null)"><i class="bi bi-x-circle me-1"></i>Cancelar todas</button>' : '',
+    ].join(' ');
+    $('nowList').innerHTML = r.length
+      ? r.map((x) => `<li class="list-group-item d-flex flex-wrap align-items-center gap-3">
+          <div class="flex-grow-1" style="min-width:0">
+            <div><span class="fw-semibold">${esc(x.project)}</span>
+              ${x.lane === 'wt' ? '<span class="badge text-bg-secondary ms-1">paralela</span>' : ''}
+              ${x.who ? `<span class="text-body-secondary small ms-1">· ${esc(x.who)}</span>` : ''}</div>
+            <div class="small text-truncate">${esc(String(x.text || '').replace(/\s+/g, ' ').slice(0, 200))}</div>
+            ${x.asking
+              ? `<div class="small text-warning-emphasis text-truncate" title="${esc(x.asking.text)}"><i class="bi bi-question-circle-fill me-1"></i>Esperando a sua resposta no WhatsApp: ${esc(x.asking.text.replace(/\s+/g, ' ').slice(0, 160))}</div>`
+              : `<div class="small text-primary text-truncate"><i class="bi bi-gear pulse me-1"></i>${esc(x.tools[x.tools.length - 1] || 'começando…')}</div>`}
+          </div>
+          <span class="badge bg-body-secondary text-body border fs-6 tabular clock" data-started="${x.started}">${clock(Date.now() - x.started)}</span>
+          <button class="btn btn-outline-danger btn-sm" onclick="cancelTask('${esc(x.project)}')">Cancelar</button>
+        </li>`).join('')
+      : `<li class="list-group-item text-body-secondary"><i class="bi bi-check2-circle text-success me-1"></i>Nenhuma tarefa rodando agora.</li>`;
+  }
+  setInterval(() => { for (const el of document.querySelectorAll('.clock[data-started]')) el.textContent = clock(Date.now() - Number(el.dataset.started)); }, 1000);
+
+  async function cancelTask(project) {
+    const ok = await confirmBox('Cancelar tarefa', project ? `Cancelar a tarefa de <b>${esc(project)}</b>?` : 'Cancelar <b>todas</b> as tarefas rodando?', 'Cancelar tarefa', 'btn-danger');
+    if (!ok) return;
+    try { await post('/api/cancel', { all: !project, project }); toast('Cancelamento pedido'); } catch (e) { toast(e.message); }
+    loadState();
+  }
+
+  // ----- parte agregada (a cada 10 s) -----
+  function renderAll() {
+    if (!dash?.ok) return;
+    renderLive();
+    renderKpis();
+    renderDays();
+    renderProjects();
+    renderPending();
+    renderSites();
+    renderMissions();
+    renderRecent();
+  }
+
+  function delta(a, b, min) {
+    if (!a && !b) return '<span class="text-body-secondary">nenhuma ontem</span>';
+    const d = a - b;
+    if (!d) return '<span class="text-body-secondary">igual a ontem</span>';
+    const v = min ? fmtMin(Math.abs(d)) : Math.abs(d);
+    return `<span class="badge ${d > 0 ? 'text-bg-success' : 'text-bg-secondary'}"><i class="bi ${d > 0 ? 'bi-arrow-up' : 'bi-arrow-down'}"></i> ${v}</span> <span class="text-body-secondary">vs. ontem</span>`;
+  }
+
+  function meter(label, w) {
+    if (!w) return `<div class="mb-2"><div class="d-flex justify-content-between small"><span>${label}</span><span>-</span></div><div class="progress" style="height:8px"></div></div>`;
+    const bg = w.pct >= 95 ? 'bg-danger' : w.pct >= 80 ? 'bg-warning' : 'bg-primary';
+    const flag = w.pct >= 95 ? ' <span class="badge text-bg-danger"><i class="bi bi-x-octagon"></i> no limite</span>' : w.pct >= 80 ? ' <span class="badge text-bg-warning"><i class="bi bi-exclamation-triangle"></i> alto</span>' : '';
+    const ren = w.resetsAt ? `renova ${new Date(w.resetsAt).toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : '';
+    return `<div class="mb-2">
+      <div class="d-flex justify-content-between small"><span>${label}</span><span class="fw-semibold">${w.pct}%${flag}</span></div>
+      <div class="progress" role="progressbar" aria-label="${label}" aria-valuenow="${w.pct}" aria-valuemin="0" aria-valuemax="100" style="height:8px"><div class="progress-bar ${bg}" style="width:${Math.min(100, w.pct)}%"></div></div>
+      <div class="small text-body-secondary">${ren}</div></div>`;
+  }
+
+  function kpi(icon, color, label, value, foot) {
+    return `<div class="col-sm-6 col-xl-3"><div class="card shadow-sm h-100"><div class="card-body">
+      <div class="d-flex align-items-center mb-3"><span class="avatar-icon bg-label-${color}"><i class="bi ${icon}"></i></span>
+        <span class="ms-3 text-body-secondary small fw-medium">${label}</span></div>
+      ${value}<div class="small mt-2">${foot}</div></div></div></div>`;
+  }
+  function renderKpis() {
+    const t = dash.today, y = dash.yesterday, wk = dash.week;
+    const rate = wk.count ? Math.round((wk.ok / wk.count) * 100) : null;
+    const rateColor = rate === null ? 'secondary' : rate >= 90 ? 'success' : rate >= 70 ? 'warning' : 'danger';
+    $('kpis').innerHTML =
+      kpi('bi-list-check', 'primary', 'Tarefas hoje', `<div class="kpi-value">${t.count}</div>`, delta(t.count, y.count) + (t.failed ? ` <span class="badge text-bg-danger ms-1">${t.failed} com erro</span>` : '')) +
+      kpi('bi-stopwatch', 'info', 'Tempo hoje', `<div class="kpi-value">${fmtMin(t.minutes)}</div>`, delta(t.minutes, y.minutes, true)) +
+      kpi('bi-check2-circle', rateColor, 'Sucesso · 7 dias', `<div class="kpi-value">${rate === null ? '-' : rate + '%'}</div>`,
+        `<span class="text-body-secondary">${wk.ok} de ${wk.count} tarefa(s) · ${fmtMin(wk.minutes)}</span>`) +
+      kpi('bi-lightning-charge', 'warning', 'Assinatura do Claude',
+        dash.usage ? meter('Janela de 5 h', dash.usage.fiveHour) + meter('Semana', dash.usage.week) : '<div class="text-body-secondary small">Aparece depois da primeira tarefa desde que o bot subiu.</div>', '');
+  }
+
+  // Barras verticais em SVG, cor primária do Bootstrap; tooltip do Bootstrap em cada coluna.
+  function renderDays() {
+    const box = $('chartDays');
+    disposeTips(box);
+    const days = dash.days;
+    const W = Math.max(300, box.clientWidth || 600), H = 220, L = 30, R = 6, T = 18, B = 26;
+    const max = Math.max(1, ...days.map((d) => d.count));
+    const step = Math.ceil(max / 4) || 1, top = step * 4;
+    const y = (v) => T + (H - T - B) * (1 - v / top);
+    const slot = (W - L - R) / days.length, bw = Math.min(34, slot * 0.62);
+    let g = '';
+    for (let v = 0; v <= top; v += step) g += `<line class="${v ? 'grid' : 'base'}" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    const peak = days.reduce((m, d, i) => (d.count > days[m].count ? i : m), 0);
+    days.forEach((d, i) => {
+      const cx = L + slot * i + slot / 2, x = cx - bw / 2;
+      const h = y(0) - y(d.count), r = Math.min(4, h, bw / 2);
+      const today = i === days.length - 1;
+      const bar = d.count ? `<path class="bar${today ? ' today' : ''}" d="M${x},${y(0)} V${y(d.count) + r} Q${x},${y(d.count)} ${x + r},${y(d.count)} H${x + bw - r} Q${x + bw},${y(d.count)} ${x + bw},${y(d.count) + r} V${y(0)} Z"/>` : '';
+      const tip = esc(`<b>${today ? 'Hoje' : fmtDay(d.day)}</b><br>${d.count} tarefa(s)<br>${d.ok} concluída(s)${d.failed ? `, ${d.failed} com erro` : ''}<br>${fmtMin(d.minutes)} de trabalho`);
+      const label = (today || i === peak) && d.count ? `<text class="val" x="${cx}" y="${y(d.count) - 6}" text-anchor="middle">${d.count}</text>` : '';
+      const tick = today || i % 2 === (days.length - 1) % 2 ? `<text x="${cx}" y="${H - 8}" text-anchor="middle">${today ? 'hoje' : new Date(d.day).getDate()}</text>` : '';
+      g += `<g class="col" data-bs-toggle="tooltip" data-bs-title="${tip}"><rect class="hit" x="${L + slot * i}" y="${T}" width="${slot}" height="${H - T - B + 1}"/>${bar}${label}${tick}</g>`;
+    });
+    const total = days.reduce((s, d) => s + d.count, 0);
+    $('daysTotal').textContent = `${total} no período`;
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Tarefas por dia nos últimos 14 dias: ${total} no total">${g}</svg>`;
+    tips(box);
+  }
+
+  // Projetos: barras de progresso do Bootstrap.
+  function renderProjects() {
+    let list = [...dash.projects].sort((a, b) => b[metric] - a[metric]);
+    if (list.length > 8) {
+      const rest = list.slice(7);
+      list = [...list.slice(0, 7), { project: `Outros (${rest.length})`, count: rest.reduce((s, p) => s + p.count, 0), minutes: rest.reduce((s, p) => s + p.minutes, 0), failed: rest.reduce((s, p) => s + p.failed, 0) }];
+    }
+    const max = Math.max(1, ...list.map((p) => p[metric]));
+    const box = $('projects');
+    disposeTips(box);
+    box.innerHTML = list.length ? list.map((p) => `
+      <div class="d-flex align-items-center gap-3 mb-2" data-bs-toggle="tooltip" data-bs-title="${esc(`<b>${esc(p.project)}</b><br>${p.count} tarefa(s) · ${fmtMin(p.minutes)}${p.failed ? `<br>${p.failed} com erro` : ''}`)}">
+        <span class="proj-name small text-truncate">${esc(p.project)}</span>
+        <div class="progress flex-grow-1" role="progressbar" aria-label="${esc(p.project)}" aria-valuenow="${p[metric]}" aria-valuemin="0" aria-valuemax="${max}" style="height:14px">
+          <div class="progress-bar" style="width:${(p[metric] / max) * 100}%"></div></div>
+        <span class="small tabular text-end" style="width:84px">${metric === 'minutes' ? fmtMin(p.minutes) : `${p.count} tarefa(s)`}</span>
+      </div>`).join('') : '<p class="text-body-secondary mb-0">Nenhuma tarefa nos últimos 30 dias.</p>';
+    tips(box);
+  }
+  for (const r of document.querySelectorAll('input[name="metric"]')) r.addEventListener('change', () => {
+    metric = r.value;
+    try { localStorage.setItem('bsMetric', metric); } catch {}
+    if (dash?.ok) renderProjects();
+  });
+
+  const PEND = {
+    approval: { icon: 'bi-rocket-takeoff', color: 'danger', title: 'Publicação', yes: 'Aprovar', no: 'Recusar' },
+    plan: { icon: 'bi-journal-text', color: 'primary', title: 'Plano', yes: 'Executar', no: 'Descartar' },
+    proposal: { icon: 'bi-lightbulb', color: 'warning', title: 'Sugestão', yes: 'Fazer', no: 'Ignorar' },
+    spec: { icon: 'bi-rulers', color: 'info', title: 'Especificação', yes: 'Executar', no: 'Descartar' },
+    rule: { icon: 'bi-arrow-repeat', color: 'success', title: 'Melhoria do processo', yes: 'Adotar', no: 'Ignorar' },
+    lesson: { icon: 'bi-mortarboard', color: 'success', title: 'Lição aprendida', yes: 'Guardar', no: 'Ignorar' },
+    mission: { icon: 'bi-bullseye', color: 'warning', title: 'Missão pausada', yes: 'Retomar', no: 'Cancelar' },
+  };
+  const pendKind = (p) => PEND[p.sub] || PEND[p.kind];
+  function renderPending() {
+    const list = dash.pending;
+    window._pend = list;
+    $('pendCount').hidden = !list.length;
+    $('pendCount').textContent = list.length;
+    $('pending').innerHTML = list.length ? list.map((p, i) => {
+      const k = pendKind(p);
+      return `<li class="list-group-item">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="badge text-bg-${k.color}"><i class="bi ${k.icon} me-1"></i>${k.title}</span>
+          ${p.project ? `<span class="fw-semibold small">${esc(p.project)}</span>` : ''}
+          <span class="ms-auto small text-body-secondary">${p.who ? `${esc(p.who)} · ` : ''}${when(p.time)}</span>
+        </div>
+        <div class="small text-truncate-2 mb-2" title="${esc(p.text)}">${esc(p.text)}</div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-success" onclick="pendAct(${i}, true)"><i class="bi bi-check-lg me-1"></i>${k.yes}</button>
+          <button class="btn btn-outline-secondary" onclick="pendAct(${i}, false)">${k.no}</button>
+        </div></li>`;
+    }).join('') : '<li class="list-group-item text-body-secondary"><i class="bi bi-emoji-smile me-1"></i>Nada esperando. Publicações, planos e sugestões aparecem aqui.</li>';
+  }
+  async function pendAct(i, accept) {
+    const p = window._pend?.[i];
+    if (!p) return;
+    const k = pendKind(p);
+    if (p.kind === 'approval' && accept) {
+      const ok = await confirmBox('Aprovar publicação', `Publicar <b>${esc(p.project)}</b>?<div class="small text-body-secondary mt-2">${esc(p.text)}</div>`, 'Aprovar e publicar', 'btn-success');
+      if (!ok) return;
+    }
+    try { await post('/api/pending', { kind: p.kind, id: p.id, accept }); toast(`${k.title}: ${(accept ? k.yes : k.no).toLowerCase()}`); } catch (e) { toast(e.message); }
+    loadDash();
+  }
+
+  function renderSites() {
+    const list = dash.sites;
+    const down = list.filter((s) => !s.up).length;
+    $('sitesBadge').innerHTML = !list.length ? '' : down
+      ? `<span class="badge text-bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>${down} fora do ar</span>`
+      : `<span class="badge text-bg-success"><i class="bi bi-check-circle me-1"></i>todos no ar</span>`;
+    $('sites').innerHTML = list.length ? [...list].sort((a, b) => a.up - b.up).map((s) => {
+      const ssl = s.sslDays === null || s.sslDays === undefined ? ''
+        : s.sslDays < 0 ? '<span class="badge text-bg-danger"><i class="bi bi-shield-x me-1"></i>SSL vencido</span>'
+        : s.sslDays < 15 ? `<span class="badge text-bg-warning"><i class="bi bi-shield-exclamation me-1"></i>SSL vence em ${s.sslDays} d</span>`
+        : `<span class="badge bg-body-secondary text-body border"><i class="bi bi-shield-check me-1"></i>SSL ${s.sslDays} d</span>`;
+      const st = s.up ? '<span class="badge text-bg-success"><i class="bi bi-circle-fill me-1" style="font-size:.5rem;vertical-align:middle"></i>no ar</span>'
+        : '<span class="badge text-bg-danger"><i class="bi bi-x-circle me-1"></i>fora do ar</span>';
+      return `<li class="list-group-item${s.up ? '' : ' list-group-item-danger'}">
+        <div class="d-flex align-items-center gap-2">
+          <a class="text-truncate fw-semibold link-body-emphasis link-underline-opacity-0" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url.replace(/^https?:\/\//, ''))}</a>
+          <span class="ms-auto d-flex gap-1">${st}</span>
+        </div>
+        <div class="small text-body-secondary d-flex flex-wrap gap-2 align-items-center mt-1">
+          ${s.project ? `<span>${esc(s.project)}</span>` : ''}${s.status ? `<span>HTTP ${esc(s.status)}</span>` : ''}
+          ${!s.up && s.since ? `<span>desde ${fmtTime(s.since)}</span>` : ''}${ssl}
+          ${s.checked ? `<span>checado às ${fmtTime(s.checked)}</span>` : ''}
+        </div></li>`;
+    }).join('') : '<li class="list-group-item text-body-secondary">Nenhum site vigiado. Preencha a URL do site no projeto para o vigia acompanhar.</li>';
+  }
+
+  const MST = { ativa: ['em andamento', 'primary'], pausada: ['pausada', 'warning'], concluida: ['concluída', 'success'], cancelada: ['cancelada', 'secondary'] };
+  function renderMissions() {
+    const list = dash.missions || [];
+    $('missionsCard').hidden = !list.length;
+    if (!list.length) return;
+    const act = list.filter((m) => m.status === 'ativa').length;
+    $('missionsBadge').innerHTML = act ? `<span class="badge text-bg-primary">${act} em andamento</span>` : '';
+    $('missions').innerHTML = list.map((m) => {
+      const [label, color] = MST[m.status] || [m.status, 'secondary'];
+      const pct = m.progress.total ? Math.round((m.progress.done / m.progress.total) * 100) : 0;
+      const next = m.running ? '<span class="text-primary"><i class="bi bi-gear pulse me-1"></i>rodando agora</span>'
+        : m.status === 'ativa' && m.nextRun ? `<span>próxima rodada ${when(m.nextRun)}</span>` : '';
+      return `<li class="list-group-item">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="badge text-bg-${color}">${label}</span>
+          <span class="fw-semibold small">#${m.id} · ${esc(m.project)}</span>
+          <span class="small text-truncate flex-grow-1" style="min-width:0" title="${esc(m.goal)}">${esc(m.goal)}</span>
+          <span class="small text-body-secondary tabular">${m.progress.total ? `${m.progress.done}/${m.progress.total} itens · ` : ''}${m.runs} rodada(s)</span>
+        </div>
+        ${m.progress.total ? `<div class="progress mt-2" role="progressbar" aria-label="Progresso da missão ${m.id}" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" style="height:6px"><div class="progress-bar bg-${color}" style="width:${pct}%"></div></div>` : ''}
+        <div class="small text-body-secondary d-flex flex-wrap gap-2 mt-1">
+          ${m.status === 'pausada' && m.pauseReason ? `<span class="text-warning-emphasis"><i class="bi bi-pause-circle me-1"></i>${esc(m.pauseReason)}</span>` : m.note ? `<span class="text-truncate" style="max-width:100%">↳ ${esc(m.note)}</span>` : ''}
+          ${next}
+        </div></li>`;
+    }).join('');
+  }
+
+  function renderRecent() {
+    const list = dash.recent;
+    const KIND = { plano: ['plano', 'info'], diagnostico: ['diagnóstico', 'warning'], spec: ['spec', 'primary'], sdd: ['SDD', 'primary'], missao: ['missão', 'warning'] };
+    $('recent').innerHTML = list.length ? `<table class="table table-hover table-sm align-middle mb-0">
+      <thead><tr><th class="ps-3">Quando</th><th>Projeto</th><th>Pedido</th><th class="d-none d-md-table-cell">Por</th><th class="text-end">Tempo</th><th class="pe-3">Resultado</th></tr></thead><tbody>` +
+      list.map((t) => `<tr>
+        <td class="ps-3 text-nowrap small tabular">${when(t.time)}</td>
+        <td class="text-nowrap fw-semibold small">${esc(t.project)}</td>
+        <td class="small" style="max-width:420px"><div class="text-truncate">${KIND[t.kind] ? `<span class="badge text-bg-${KIND[t.kind][1]} me-1">${KIND[t.kind][0]}</span>` : ''}${esc(t.text || '(sem texto)')}</div></td>
+        <td class="d-none d-md-table-cell small text-nowrap">${esc(t.who)}</td>
+        <td class="text-end small tabular text-nowrap">${fmtMin(t.ms / 60000)}</td>
+        <td class="pe-3">${t.ok ? '<span class="badge text-bg-success"><i class="bi bi-check-lg"></i> ok</span>' : '<span class="badge text-bg-danger"><i class="bi bi-x-lg"></i> erro</span>'}</td></tr>`).join('') + '</tbody></table>'
+      : '<p class="text-body-secondary p-3 mb-0">Nenhuma tarefa registrada ainda.</p>';
+  }
+
+  let resizeT;
+  window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => dash?.ok && renderDays(), 150); });
+
+  loadState();
+  loadDash();
+  setInterval(() => { if (!document.hidden) loadState(); }, 2000);
+  setInterval(() => { if (!document.hidden) loadDash(); }, 10000);
+</script>
+</body>
+</html>

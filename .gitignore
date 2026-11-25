@@ -2,3 +2,10 @@ node_modules/
 data/
 config.json
 .claude/settings.local.json
+memoria/
+
+# ferramentas: credenciais, cache e drivers
+ferramentas/conexoes/
+ferramentas/cache/
+ferramentas/node_modules/
+ferramentas/package-lock.json

@@ -13,8 +13,26 @@ const EXT = {
   'image/webp': '.webp',
   'image/gif': '.gif',
   'application/pdf': '.pdf',
+  'audio/ogg': '.ogg',
+  'audio/mpeg': '.mp3',
+  'audio/mp4': '.m4a',
 };
 const MIME = Object.fromEntries(Object.entries(EXT).map(([m, e]) => [e, m]));
+
+// Tipos dos arquivos que o Claude devolve pela pasta de saída.
+const OUT_MIME = {
+  ...MIME,
+  '.jpeg': 'image/jpeg',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv',
+  '.json': 'application/json',
+  '.zip': 'application/zip',
+  '.mp4': 'video/mp4',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+};
+const OUTBOX_DIR = path.join(DATA_DIR, 'outbox');
 
 function cleanMime(m) {
   return String(m || '').split(';')[0].trim().toLowerCase();
@@ -23,6 +41,10 @@ function cleanMime(m) {
 // Tipo de mídia aceito numa mensagem do WhatsApp (conteúdo já normalizado), ou null.
 function mediaInfo(content) {
   if (content?.imageMessage) return { mimetype: cleanMime(content.imageMessage.mimetype) || 'image/jpeg' };
+  if (content?.audioMessage) {
+    const m = cleanMime(content.audioMessage.mimetype);
+    return { mimetype: EXT[m] ? m : 'audio/ogg', audio: true };
+  }
   const doc = content?.documentMessage;
   if (doc && EXT[cleanMime(doc.mimetype)]) return { mimetype: cleanMime(doc.mimetype), fileName: doc.fileName };
   return null;
@@ -53,6 +75,7 @@ function resolveUpload(name) {
 
 // Remove uploads com mais de `days` dias.
 function cleanupUploads(days = 7) {
+  fs.rmSync(OUTBOX_DIR, { recursive: true, force: true }); // sobras de tarefas interrompidas
   const limit = Date.now() - days * 86400000;
   for (const f of fs.readdirSync(UPLOAD_DIR)) {
     const file = path.join(UPLOAD_DIR, f);
@@ -80,6 +103,31 @@ function takePending(key) {
   return list;
 }
 
+// Pasta onde o Claude salva arquivos para mandar de volta ao usuário (uma por tarefa).
+function createOutbox() {
+  const dir = path.join(OUTBOX_DIR, `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+// Arquivos deixados na pasta de saída: [{ file, name, mimetype, size }].
+function outboxFiles(dir) {
+  try {
+    return fs
+      .readdirSync(dir)
+      .map((name) => ({ name, file: path.join(dir, name) }))
+      .filter((f) => fs.statSync(f.file).isFile())
+      .filter((f) => !/^(page|console)-.*\.(ya?ml|log)$/i.test(f.name)) // rascunhos do navegador (Playwright)
+      .map((f) => ({ ...f, mimetype: OUT_MIME[path.extname(f.name).toLowerCase()] || 'application/octet-stream', size: fs.statSync(f.file).size }));
+  } catch {
+    return [];
+  }
+}
+
+function removeOutbox(dir) {
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 function attachmentsPrompt(files) {
   if (!files.length) return '';
   return (
@@ -98,4 +146,7 @@ module.exports = {
   addPending,
   takePending,
   attachmentsPrompt,
+  createOutbox,
+  outboxFiles,
+  removeOutbox,
 };

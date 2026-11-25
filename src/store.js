@@ -51,7 +51,13 @@ function escapeRegex(s) {
 }
 
 // Informações extras do projeto que são passadas ao Claude em toda tarefa.
-const PROJECT_FIELDS = ['description', 'stack', 'url', 'testCommand', 'notes', 'permissionMode'];
+// gitFlow: '' (nada) | 'branch' (branch + commit por tarefa). scope: '' (projeto) | 'pc' (máquina toda).
+// SDD (desenvolvimento guiado por especificação), por projeto:
+//   sdd: '' (desligado) | 'auto' (pedidos grandes) | 'sempre'; sddDir: pasta das specs (padrão docs/specs);
+//   sddTemplate: instruções extras para a spec; sddReview: '' (retrospectiva ligada) | 'nao';
+//   sddRules: regras aprendidas (melhoria contínua), uma por linha.
+// lessons: lições aprovadas pelo dono (melhoria contínua de qualquer tarefa), uma por linha.
+const PROJECT_FIELDS = ['description', 'stack', 'url', 'testCommand', 'previewCommand', 'notes', 'permissionMode', 'repo', 'gitFlow', 'scope', 'model', 'chatMode', 'sdd', 'sddDir', 'sddTemplate', 'sddReview', 'sddRules', 'lessons'];
 const PERMISSION_MODES = ['', 'auto', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'];
 
 function pickFields(fields = {}) {
@@ -61,6 +67,12 @@ function pickFields(fields = {}) {
     out[f] = String(fields[f] ?? '').trim();
   }
   if (out.permissionMode && !PERMISSION_MODES.includes(out.permissionMode)) delete out.permissionMode;
+  if (out.gitFlow && out.gitFlow !== 'branch') delete out.gitFlow;
+  if (out.scope && out.scope !== 'pc') delete out.scope;
+  if (out.sdd && !['auto', 'sempre'].includes(out.sdd)) delete out.sdd;
+  if (out.sddReview && out.sddReview !== 'nao') delete out.sddReview;
+  // Pasta das specs: sempre relativa e dentro do projeto.
+  if (out.sddDir !== undefined) out.sddDir = out.sddDir.replace(/\\/g, '/').replace(/^[/.]+/, '').split('/').filter((s) => s && s !== '..').join('/');
   return out;
 }
 
@@ -108,10 +120,32 @@ const projects = {
     saveProjects();
     return true;
   },
-  setSession(name, sessionId) {
+  // Sessão do Claude no projeto: a do dono (person vazio) ou a de cada pessoa do grupo.
+  setSession(name, sessionId, person = null) {
+    const key = normalize(name);
+    const p = db.projects[key];
+    if (!p) return;
+    if (person) {
+      p.sessions ||= {};
+      if (sessionId) p.sessions[person] = sessionId;
+      else delete p.sessions[person];
+    } else {
+      p.sessionId = sessionId || null;
+    }
+    saveProjects();
+  },
+  clearSessions(name) {
     const key = normalize(name);
     if (!db.projects[key]) return;
-    db.projects[key].sessionId = sessionId || null;
+    db.projects[key].sessionId = null;
+    db.projects[key].sessions = {};
+    saveProjects();
+  },
+  // Estado interno (ex.: gitBranch/gitBase da branch da tarefa), fora dos campos editáveis.
+  setState(name, fields) {
+    const key = normalize(name);
+    if (!db.projects[key]) return;
+    Object.assign(db.projects[key], fields);
     saveProjects();
   },
   get current() {

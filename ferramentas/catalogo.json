@@ -1,0 +1,120 @@
+{
+  "ferramentas": [
+    {
+      "criada": "2026-11-12",
+      "usos": 1,
+      "nome": "evolution-lista",
+      "arquivo": "bin/evolution-lista.js",
+      "descricao": "Põe ou tira conversas de uma lista/etiqueta do WhatsApp via Evolution API (a lista precisa existir no app)",
+      "tags": [
+        "whatsapp",
+        "evolution",
+        "lista",
+        "etiqueta"
+      ],
+      "uso": "node ferramentas/f.js rodar evolution-lista --env <projeto>/.env --lista Prospecta --numeros 5565...,5565... | --arquivo nums.txt [--remover] | --listas",
+      "ultimoUso": "2026-11-12"
+    },
+    {
+      "criada": "2026-11-07",
+      "usos": 2,
+      "nome": "evolution-qrcode",
+      "arquivo": "bin/evolution-qrcode.js",
+      "descricao": "Gera o QR Code de conexão do WhatsApp numa instância da Evolution API (cria a instância se faltar)",
+      "tags": [
+        "whatsapp",
+        "evolution",
+        "qrcode"
+      ],
+      "uso": "node ferramentas/f.js rodar evolution-qrcode --env <projeto>/.env --saida <outbox>/qrcode.png [--instancia nome]",
+      "ultimoUso": "2026-11-07"
+    },
+    {
+      "criada": "2026-11-11",
+      "usos": 1,
+      "nome": "imap-caixa",
+      "arquivo": "bin/imap-caixa.py",
+      "descricao": "Lista e-mails de uma caixa IMAP (só leitura): respostas de leads, bounces; credenciais do .env do projeto (IMAP_* ou SMTP_*)",
+      "tags": [
+        "email",
+        "imap",
+        "caixa",
+        "respostas"
+      ],
+      "uso": "node ferramentas/f.js rodar imap-caixa --env <projeto>/.env [--desde 09-Nov-2026] [--pasta INBOX|INBOX.Sent] [--max 50]",
+      "ultimoUso": "2026-11-11"
+    },
+    {
+      "criada": "2026-11-06",
+      "nome": "ip-externo",
+      "arquivo": "bin/ip-externo.ps1",
+      "descricao": "IP público do PC (ipify, reserva ifconfig.me)",
+      "tags": [
+        "ip",
+        "rede",
+        "internet",
+        "externo"
+      ],
+      "uso": "node ferramentas/f.js rodar ip-externo",
+      "usos": 0
+    },
+    {
+      "criada": "2026-11-06",
+      "nome": "perfil",
+      "arquivo": "bin/perfil.js",
+      "descricao": "Analisa CSV/JSON sem abrir o arquivo inteiro: perfil das colunas, filtro, soma/contagem por grupo",
+      "tags": [
+        "analise",
+        "csv",
+        "json",
+        "planilha",
+        "relatorio",
+        "dados",
+        "agrupar",
+        "somar",
+        "perfil"
+      ],
+      "uso": "node ferramentas/f.js rodar perfil <arquivo> [--filtro \"col=valor\"] [--agrupar col --somar col --top 20]",
+      "usos": 0
+    },
+    {
+      "criada": "2026-11-06",
+      "nome": "sankhya-publicar-addon",
+      "arquivo": "bin/sankhya-publicar-addon.py",
+      "descricao": "Publica o .exts de um add-on Sankhya na Área do Desenvolvedor (teste ou produção); copiada do projeto Fênix",
+      "tags": [
+        "sankhya",
+        "addon",
+        "exts",
+        "publicar",
+        "extensao",
+        "areadev",
+        "deploy"
+      ],
+      "uso": "rodar na pasta do add-on: node <bot>/ferramentas/f.js rodar sankhya-publicar-addon info | login | publicar --changelog \"...\" --destino teste|producao --confirmar",
+      "perigosa": true,
+      "usos": 0
+    },
+    {
+      "criada": "2026-11-06",
+      "nome": "sql",
+      "arquivo": "bin/sql.js",
+      "descricao": "Consulta bancos cadastrados (Postgres, MySQL, SQL Server, Oracle, SQLite): saída curta, CSV, tabelas/colunas em cache, só leitura",
+      "tags": [
+        "banco",
+        "sql",
+        "consulta",
+        "select",
+        "tabela",
+        "postgres",
+        "mysql",
+        "oracle",
+        "sqlserver",
+        "sqlite",
+        "database"
+      ],
+      "uso": "node ferramentas/f.js rodar sql <conexao> \"SELECT ...\" [--max 50] [--csv arquivo.csv] | <conexao> --tabelas [filtro] | <conexao> --colunas <tabela> | <conexao> --testar",
+      "usos": 0
+    }
+  ]
+}

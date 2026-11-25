@@ -1,12 +1,70 @@
 {
   "allowedChats": [],
+  "chatProjects": {},
   "allowedSenders": [],
   "claudePath": "claude",
   "permissionMode": "auto",
   "model": "",
+  "modelos": { "rotear": true, "economico": "sonnet", "forte": "opus", "executor": "haiku", "analista": "sonnet" },
   "taskTimeoutMin": 60,
   "progressIntervalSec": 90,
   "maxMessageLength": 3500,
+  "maxParallel": 3,
   "botPrefix": "🤖 ",
-  "webPort": 3000
+  "webPort": 3000,
+  "projectsRoot": "",
+  "pcDirs": [],
+  "transcribeAudio": true,
+  "pythonPath": "python",
+  "whisperModel": "small",
+  "verifyBeforeDone": true,
+  "maxPerProject": 3,
+  "parallelPerProject": true,
+  "sessionPerPerson": true,
+  "browserCheck": true,
+  "requireDeployApproval": true,
+  "limits": {
+    "defaultMinPerDay": 0,
+    "people": {},
+    "projects": {}
+  },
+  "watchSites": true,
+  "watchIntervalMin": 5,
+  "pcAlerts": {
+    "enabled": true,
+    "diskPct": 90,
+    "services": []
+  },
+  "previewHours": 2,
+  "phpPath": "php",
+  "cloudflaredPath": "",
+  "freeAgent": {
+    "enabled": true,
+    "selfChat": true,
+    "numbers": []
+  },
+  "planFirst": "auto",
+  "askMidTask": true,
+  "askTimeoutMin": 30,
+  "maxQuestions": 3,
+  "lessons": true,
+  "missions": {
+    "enabled": true,
+    "intervalMin": 60,
+    "maxRunsPerDay": 8,
+    "maxUsagePct": 70,
+    "runMin": 20
+  },
+  "autoDiagnose": true,
+  "morning": {
+    "enabled": true,
+    "time": "08:00"
+  },
+  "triggers": {
+    "enabled": true,
+    "intervalMin": 10,
+    "github": true,
+    "email": []
+  },
+  "pdfBrowser": ""
 }

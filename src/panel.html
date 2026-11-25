@@ -1,192 +1,439 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-bs-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agente Claude</title>
+<title>Painel do agente</title>
+<script>
+  // Tema antes de pintar: claro por padrão; escuro só se a pessoa escolheu no botão (a mesma escolha do dashboard).
+  (() => {
+    let t = '';
+    try { t = localStorage.getItem('tema') || ''; } catch {}
+    document.documentElement.dataset.bsTheme = t === 'dark' ? 'dark' : 'light';
+  })();
+</script>
+<link rel="stylesheet" href="/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/vendor/bootstrap-icons.min.css">
+<link rel="stylesheet" href="/tema.css">
 <style>
-  :root {
-    --bg: #f6f6f4; --panel: #ffffff; --line: #e4e3df; --text: #1d1d1b; --muted: #6d6c67;
-    --accent: #c4673f; --accent-soft: #f6e6dd; --ok: #2f8a4f; --ok-soft: #e1f2e6;
-    --warn: #b7791f; --warn-soft: #fbefd9; --err: #b83a3a; --err-soft: #f8e1e1;
-    --bubble-user: #dcf2e3; --bubble-bot: #f1f0ec; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #161614; --panel: #1f1f1d; --line: #33322f; --text: #ecebe6; --muted: #9c9b95;
-      --accent: #e08a5f; --accent-soft: #3a2a21; --ok: #5cc27e; --ok-soft: #1d3326;
-      --warn: #e0a84a; --warn-soft: #3a2f1c; --err: #e46d6d; --err-soft: #3d2222;
-      --bubble-user: #1f3a2a; --bubble-bot: #2a2a27;
-    }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
-  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
-  header .meta { color: var(--muted); font-size: 12px; margin-left: auto; text-align: right; }
-  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--warn-soft); color: var(--warn); }
-  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .pill.ok { background: var(--ok-soft); color: var(--ok); }
-  .pill.err { background: var(--err-soft); color: var(--err); }
-  main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 12px 16px; } }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
-  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; font-weight: 650; }
-  .chat { display: flex; flex-direction: column; height: calc(100vh - 140px); min-height: 420px; padding: 0; }
-  .chat h2 { padding: 14px 16px 0; }
-  #messages { flex: 1; overflow-y: auto; padding: 8px 16px; display: flex; flex-direction: column; gap: 8px; }
-  .msg { max-width: 82%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; word-wrap: break-word; }
-  .msg.user { align-self: flex-end; background: var(--bubble-user); border-bottom-right-radius: 3px; }
-  .msg.bot { align-self: flex-start; background: var(--bubble-bot); border-bottom-left-radius: 3px; }
-  .msg .files { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
-  .msg .files img { max-width: 220px; max-height: 220px; border-radius: 6px; display: block; cursor: zoom-in; }
-  .msg .files a { color: var(--accent); }
-  .attach { display: flex; align-items: center; justify-content: center; width: 40px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 18px; flex-shrink: 0; }
-  .attach:hover { border-color: var(--accent); }
-  #attachments { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px 0; border-top: 1px solid var(--line); }
-  #attachments[hidden] { display: none; }
+  /* Só o que o Bootstrap e o tema não têm: telas de altura cheia, bolhas da conversa e avatares. */
+  .view { display: none; flex: 1; min-width: 0; min-height: 0; }
+  .view.active { display: flex; }
+  .view.page.active { display: block; overflow-y: auto; margin: -.5rem -1rem 0; }
+  #view-chat { background: var(--bs-body-bg); border-radius: .5rem; box-shadow: var(--app-shadow); overflow: hidden; }
+  .convo { background: var(--bs-tertiary-bg); }
+
+  .chat-list { width: 340px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; }
+  #chatList { flex: 1; overflow-y: auto; }
+  #chatList .list-group-item { cursor: pointer; }
+  .convo { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+  #messages { flex: 1; overflow-y: auto; padding: 18px 8%; display: flex; flex-direction: column; gap: 3px; }
+  @media (max-width: 1200px) { #messages { padding: 16px 20px; } }
+
+  .avatar { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; flex-shrink: 0; position: relative; }
+  .avatar.sm { width: 38px; height: 38px; font-size: .85rem; }
+  .avatar .busy { position: absolute; right: -1px; bottom: -1px; width: 13px; height: 13px; border-radius: 50%; background: var(--bs-warning); border: 2px solid var(--bs-body-bg); }
+  .min-w-0 { min-width: 0; }
+
+  .msg { max-width: min(640px, 78%); padding: 6px 10px 5px; border-radius: var(--bs-border-radius-lg); white-space: pre-wrap; word-wrap: break-word; box-shadow: var(--bs-box-shadow-sm); }
+  .msg.in { align-self: flex-start; background: var(--bs-body-bg); }
+  .msg.out { align-self: flex-end; background: var(--bs-primary-bg-subtle); }
+  .msg.first { margin-top: 8px; }
+  .msg .who { display: block; font-size: .8rem; font-weight: 700; }
+  .msg time { float: right; font-size: .7rem; color: var(--bs-secondary-color); margin: 6px 0 -3px 12px; }
+  .msg .files { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 4px; }
+  .msg .files img { max-width: 260px; max-height: 260px; border-radius: 6px; display: block; }
+  .day { align-self: center; margin: 12px 0 8px; }
+
+  #taskText { resize: none; max-height: 160px; }
   .chip { position: relative; }
-  .chip img, .chip .pdf { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: 12px; background: var(--bg); }
-  .chip button { position: absolute; top: -6px; right: -6px; padding: 0 6px; border-radius: 999px; font-size: 12px; line-height: 18px; }
-  .msg .who { display: block; font-size: 12px; color: var(--accent); margin-bottom: 2px; }
-  .msg time { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; text-align: right; }
-  .empty { color: var(--muted); text-align: center; margin: auto; }
-  form.send { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
-  textarea, input { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-  textarea { resize: none; height: 44px; }
-  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  button { font: inherit; font-weight: 600; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
-  button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.danger { color: var(--err); }
-  button.small { padding: 2px 8px; font-size: 12px; }
-  .running-text { margin: 0 0 8px; }
-  .tools { list-style: none; margin: 0 0 10px; padding: 0; font-family: var(--mono); font-size: 12px; color: var(--muted); max-height: 220px; overflow-y: auto; }
-  .tools li { padding: 2px 0; border-bottom: 1px dashed var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .project { padding: 8px 0; border-bottom: 1px solid var(--line); }
-  .project:last-of-type { border-bottom: 0; }
-  .project .name { font-weight: 650; }
-  .project .tag { font-size: 11px; background: var(--accent-soft); color: var(--accent); padding: 1px 7px; border-radius: 999px; margin-left: 6px; font-weight: 600; }
-  .project .path, .muted { color: var(--muted); font-size: 12px; word-break: break-all; }
-  .project .actions { display: flex; gap: 6px; margin-top: 6px; }
-  .addform label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; }
-  .addform textarea { height: auto; resize: vertical; }
-  select { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-  input[readonly] { opacity: .65; }
-  .project .notes { font-size: 12px; margin-top: 4px; padding: 6px 8px; border-radius: 6px; background: var(--accent-soft); white-space: pre-wrap; max-height: 90px; overflow: hidden; }
-  details summary { cursor: pointer; font-weight: 600; margin-top: 8px; }
-  .addform { display: grid; gap: 8px; margin-top: 10px; }
+  .chip img, .chip .pdf { width: 60px; height: 60px; object-fit: cover; display: grid; place-items: center; }
+  .chip .btn { position: absolute; top: -8px; right: -8px; }
+  .steps-list { max-height: 180px; overflow-y: auto; }
+  .device-code { font-family: var(--bs-font-monospace); font-size: 2rem; font-weight: 700; letter-spacing: .12em; user-select: all; }
+  #logBox { max-height: calc(100vh - 220px); overflow: auto; white-space: pre-wrap; }
   #qr img { display: block; margin: 0 auto; background: #fff; padding: 8px; border-radius: 8px; max-width: 100%; }
-  pre#logs { font-family: var(--mono); font-size: 11.5px; max-height: 260px; overflow: auto; margin: 0; white-space: pre-wrap; color: var(--muted); }
-  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
-  #toast.show { opacity: 1; }
+  #browseList .list-group-item { cursor: pointer; }
+  .notes { white-space: pre-wrap; max-height: 90px; overflow: hidden; }
+  .pulse { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+
+  /* Celular: lista ou conversa. */
+  @media (max-width: 860px) {
+    .chat-list { width: 100%; border-right: 0 !important; }
+    #view-chat.open .chat-list { display: none; }
+    #view-chat:not(.open) .convo { display: none; }
+    .msg { max-width: 88%; }
+  }
+  @media (min-width: 861px) { .back { display: none; } }
 </style>
 </head>
-<body>
-<header>
-  <h1>🤖 Agente Claude · WhatsApp</h1>
-  <span id="status" class="pill">carregando</span>
-  <div class="meta" id="meta"></div>
-</header>
-<main>
-  <section>
-    <div class="card chat">
-      <h2>Conversa</h2>
-      <div id="messages"><p class="empty">Nenhuma mensagem ainda.</p></div>
-      <div id="attachments" hidden></div>
-      <form class="send" id="sendForm">
-        <label class="attach" title="Anexar imagem ou PDF">📎
+<body class="bg-body-tertiary app-full">
+
+<aside class="layout-menu" id="layoutMenu" aria-label="Menu">
+  <a class="app-brand" href="/"><span class="app-brand-logo"><i class="bi bi-robot"></i></span><span class="app-brand-text">agente</span></a>
+  <ul class="menu-inner" id="tabs">
+    <li class="menu-header">Visão geral</li>
+    <li><a class="menu-link" href="/"><i class="bi bi-house-door"></i>Dashboard</a></li>
+    <li class="menu-header">Trabalho</li>
+    <li><a class="menu-link" href="#chat" data-view="chat" data-icon="bi-chat-dots"><i class="bi bi-chat-dots"></i>Conversas <span class="badge rounded-pill text-bg-warning" id="badgeRun" hidden></span></a></li>
+    <li><a class="menu-link" href="#projects" data-view="projects" data-icon="bi-folder2"><i class="bi bi-folder2"></i>Projetos</a></li>
+    <li class="menu-header">Integrações</li>
+    <li><a class="menu-link" href="#github" data-view="github" data-icon="bi-github"><i class="bi bi-github"></i>GitHub</a></li>
+    <li><a class="menu-link" href="#whatsapp" data-view="whatsapp" data-icon="bi-whatsapp"><i class="bi bi-whatsapp"></i>WhatsApp</a></li>
+    <li class="menu-header">Sistema</li>
+    <li><a class="menu-link" href="#logs" data-view="logs" data-icon="bi-terminal"><i class="bi bi-terminal"></i>Logs</a></li>
+  </ul>
+</aside>
+<div class="layout-overlay" onclick="toggleMenu(false)"></div>
+
+<div class="layout-page">
+<nav class="layout-navbar">
+  <button class="btn btn-link text-body p-0 menu-toggle" type="button" onclick="toggleMenu()" aria-label="Abrir menu"><i class="bi bi-list fs-3"></i></button>
+  <span class="nav-title" id="navTitle"></span>
+  <div class="ms-auto d-flex align-items-center gap-3">
+    <span id="waBadge" class="badge text-bg-secondary"><i class="bi bi-whatsapp me-1"></i>…</span>
+    <button id="themeBtn" class="btn btn-link text-body p-0 fs-5" type="button" onclick="toggleTheme()" aria-label="Trocar tema"><i class="bi bi-moon-stars"></i></button>
+    <span class="user-avatar" title="Agente"><i class="bi bi-robot"></i></span>
+  </div>
+</nav>
+
+<main class="content-wrapper">
+<!-- ===================== CONVERSAS ===================== -->
+<section class="view" id="view-chat">
+  <div class="chat-list bg-body border-end">
+    <div class="p-3 pb-2">
+      <h1 class="h5 mb-2">Conversas</h1>
+      <div class="input-group input-group-sm">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input class="form-control" id="chatSearch" type="search" placeholder="Buscar conversa ou projeto" aria-label="Buscar conversa">
+      </div>
+    </div>
+    <div class="px-3 pb-2"><div class="card" id="agentCard"></div></div>
+    <div class="px-3 pb-2">
+      <div class="btn-group btn-group-sm w-100" role="group" id="filters" aria-label="Filtro">
+        <button type="button" class="btn btn-outline-primary active" data-f="all">Todas</button>
+        <button type="button" class="btn btn-outline-primary" data-f="group">Grupos</button>
+        <button type="button" class="btn btn-outline-primary" data-f="direct">Diretas</button>
+        <button type="button" class="btn btn-outline-primary" data-f="busy">Ativas</button>
+      </div>
+    </div>
+    <div class="list-group list-group-flush border-top" id="chatList"></div>
+  </div>
+
+  <div class="convo" id="convo">
+    <div class="d-flex flex-grow-1 align-items-center justify-content-center text-center text-body-secondary p-4" id="welcome">
+      <div><i class="bi bi-chat-square-text display-4 text-primary"></i><h2 class="h4 text-body mt-3">Escolha uma conversa</h2>
+        <p class="mb-0">Cada grupo e cada conversa direta aparece separado, com o que foi pedido e o que o agente respondeu.</p></div>
+    </div>
+    <div class="d-flex align-items-center gap-3 px-3 py-2 bg-body border-bottom" id="convoHead" hidden>
+      <button class="btn btn-link text-body p-0 back" onclick="closeChat()" aria-label="Voltar para a lista"><i class="bi bi-arrow-left fs-5"></i></button>
+      <div class="avatar sm" id="convoAvatar"></div>
+      <div class="flex-grow-1 min-w-0"><div class="fw-semibold text-truncate" id="convoName"></div><div class="small text-body-secondary" id="convoSub"></div></div>
+      <span class="badge" id="convoState"></span>
+    </div>
+    <div id="work" hidden></div>
+    <div id="messages" hidden></div>
+    <div class="bg-body border-top px-3 py-2" id="composer" hidden>
+      <div class="d-flex align-items-center gap-2 small text-body-secondary mb-2" id="target">Trabalhar em
+        <select class="form-select form-select-sm w-auto fw-semibold" id="taskProject" title="Projeto da tarefa" style="max-width:60%"></select>
+        <span id="targetHint" class="text-warning-emphasis"></span>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mb-2" id="attachments" hidden></div>
+      <form class="d-flex gap-2 align-items-end" id="sendForm">
+        <label class="btn btn-outline-secondary rounded-circle" title="Anexar imagem ou PDF" aria-label="Anexar"><i class="bi bi-paperclip"></i>
           <input type="file" id="fileInput" accept="image/*,application/pdf" multiple hidden>
         </label>
-        <textarea id="taskText" placeholder="Digite uma tarefa ou comando (/ajuda)… Cole prints com Ctrl+V. Enter envia, Shift+Enter quebra linha"></textarea>
-        <button class="primary" type="submit">Enviar</button>
+        <textarea class="form-control" id="taskText" rows="1" placeholder="Mensagem ou tarefa" title="Enter envia, Shift+Enter quebra linha" aria-label="Mensagem"></textarea>
+        <button class="btn btn-primary rounded-circle" type="submit" id="sendBtn" aria-label="Enviar"><i class="bi bi-send-fill"></i></button>
       </form>
     </div>
-  </section>
-  <aside>
-    <div class="card" id="qrCard" hidden>
-      <h2>Conectar WhatsApp</h2>
-      <div id="qr"></div>
-      <p class="muted">WhatsApp → Aparelhos conectados → Conectar um aparelho.</p>
+  </div>
+</section>
+
+<!-- ===================== PROJETOS ===================== -->
+<section class="view page" id="view-projects">
+  <div class="container-xl py-4">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <div class="me-auto"><h2 class="h3 mb-1">Projetos</h2>
+        <div class="text-body-secondary small">Cada projeto é uma pasta onde o Claude trabalha. Ligue um grupo do WhatsApp a ele para mandar tarefas direto.</div></div>
+      <a class="btn btn-outline-secondary" href="#github"><i class="bi bi-github me-1"></i>Baixar do GitHub</a>
+      <button class="btn btn-primary" onclick="newProject()"><i class="bi bi-plus-lg me-1"></i>Novo projeto</button>
     </div>
-    <div class="card">
-      <h2>Tarefa atual</h2>
-      <div id="running"><p class="muted">Nenhuma tarefa em andamento.</p></div>
+    <div class="card shadow-sm mb-4" id="schedCard" hidden>
+      <div class="card-header fw-semibold"><i class="bi bi-calendar-event me-1"></i>Agendamentos</div>
+      <ul class="list-group list-group-flush" id="schedules"></ul>
+      <div class="card-footer small text-body-secondary">Crie pela conversa: <code>/agendar uteis 08:00 tarefa</code></div>
     </div>
-    <div class="card" id="queueCard" hidden>
-      <h2>Fila</h2>
-      <ol id="queue" style="margin:0;padding-left:18px"></ol>
-    </div>
-    <div class="card">
-      <h2>Projetos</h2>
-      <div id="projects"></div>
-      <details id="projEditor">
-        <summary id="projEditorTitle">+ Cadastrar projeto</summary>
-        <form class="addform" id="addForm">
-          <label>Nome <input name="name" placeholder="ex.: nivix" required></label>
-          <label>Pasta do projeto <input name="path" placeholder="C:\Users\...\pasta" required></label>
-          <label>Apelidos <span class="muted">(separados por vírgula — usados para reconhecer o projeto na mensagem)</span>
-            <input name="aliases" placeholder="nuvix, site nivix"></label>
-          <label>Descrição <textarea name="description" rows="2" placeholder="O que é o projeto, para quem é, objetivo"></textarea></label>
-          <label>Tecnologias <input name="stack" placeholder="ex.: PHP 8, MySQL, JS puro, Apache"></label>
-          <label>URL do site <input name="url" placeholder="https://..."></label>
-          <label>Como rodar / testar <input name="testCommand" placeholder="ex.: php -S localhost:8000 router.php"></label>
-          <label>Observações <span class="muted">(regras que o Claude sempre segue neste projeto)</span>
-            <textarea name="notes" rows="5" placeholder="ex.: Não alterar o layout do admin. Sempre manter textos em PT-BR. Pode fazer commit e push na branch main quando eu pedir."></textarea></label>
-          <label>Modo de permissão
-            <select name="permissionMode">
-              <option value="">Padrão do sistema</option>
-              <option value="auto">auto — autônomo com checagem de segurança</option>
-              <option value="acceptEdits">acceptEdits — só edita arquivos</option>
-              <option value="plan">plan — só planeja, não altera nada</option>
-              <option value="bypassPermissions">bypassPermissions — libera tudo</option>
-            </select></label>
-          <div style="display:flex;gap:8px">
-            <button class="primary" type="submit" id="projSubmit">Cadastrar</button>
-            <button type="button" id="projCancel" hidden onclick="resetProjectForm()">Cancelar edição</button>
-          </div>
-        </form>
-      </details>
-    </div>
-    <div class="card">
-      <h2>Números autorizados</h2>
-      <p class="muted" style="margin-top:0">Podem mandar tarefas no privado do seu WhatsApp. Você sempre tem acesso.</p>
-      <div id="senders"></div>
-      <div id="pendingBox" hidden>
-        <h2 style="margin-top:14px">Tentaram falar com o bot</h2>
-        <div id="pending"></div>
+    <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3" id="projectGrid"></div>
+  </div>
+</section>
+
+<!-- ===================== GITHUB ===================== -->
+<section class="view page" id="view-github">
+  <div class="container-xl py-4">
+    <h2 class="h3 mb-1">GitHub</h2>
+    <p class="text-body-secondary small">Conecte sua conta para listar e baixar repositórios, abrir Pull Requests e enviar alterações.</p>
+    <div class="card shadow-sm mb-4"><div class="card-body" id="ghAccount"><div class="text-center text-body-secondary py-3"><span class="spinner-border spinner-border-sm me-2"></span>Verificando conexão…</div></div></div>
+    <div class="card shadow-sm" id="ghReposCard" hidden>
+      <div class="card-header fw-semibold"><i class="bi bi-journal-code me-1"></i>Repositórios</div>
+      <div class="card-body pb-0">
+        <div class="row g-2 mb-2">
+          <div class="col-sm-auto"><select class="form-select" id="ghOwner" title="Dono"></select></div>
+          <div class="col"><input class="form-control" id="ghSearch" type="search" placeholder="Filtrar por nome ou descrição"></div>
+          <div class="col-auto"><button class="btn btn-outline-secondary" type="button" onclick="loadRepos(true)"><i class="bi bi-arrow-clockwise me-1"></i>Atualizar</button></div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center small text-body-secondary mb-2">
+          <div class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" role="switch" id="ghGroup"><label class="form-check-label" for="ghGroup">Criar grupo no WhatsApp ao baixar</label></div>
+          <span class="ms-auto">Destino: <code id="ghRoot"></code></span>
+        </div>
       </div>
-      <details>
-        <summary>+ Autorizar número</summary>
-        <form class="addform" id="senderForm">
-          <input name="number" placeholder="Número com DDD (ex.: 65 99999-9999)" required>
-          <input name="name" placeholder="Nome (opcional)">
-          <button class="primary" type="submit">Autorizar</button>
-        </form>
-      </details>
+      <ul class="list-group list-group-flush" id="ghRepos"></ul>
     </div>
-    <div class="card">
-      <h2>Logs</h2>
-      <pre id="logs"></pre>
+  </div>
+</section>
+
+<!-- ===================== WHATSAPP ===================== -->
+<section class="view page" id="view-whatsapp">
+  <div class="container-xl py-4">
+    <div class="d-flex align-items-center gap-2 mb-3"><h2 class="h3 mb-0">WhatsApp</h2><span id="status" class="badge text-bg-secondary">carregando</span></div>
+    <div class="row g-4">
+      <div class="col-lg-6">
+        <div class="card shadow-sm mb-4" id="qrCard" hidden>
+          <div class="card-header fw-semibold"><i class="bi bi-qr-code me-1"></i>Conectar WhatsApp</div>
+          <div class="card-body"><div id="qr"></div>
+            <p class="small text-body-secondary mt-2 mb-0">No celular: WhatsApp, Aparelhos conectados, Conectar um aparelho.</p></div>
+        </div>
+        <div class="card shadow-sm mb-4">
+          <div class="card-header fw-semibold"><i class="bi bi-plug me-1"></i>Conexão</div>
+          <ul class="list-group list-group-flush" id="waInfo"></ul>
+        </div>
+        <div class="card shadow-sm">
+          <div class="card-header fw-semibold"><i class="bi bi-trash3 me-1"></i>Apagar automaticamente</div>
+          <div class="card-body">
+            <div class="alert alert-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>Mensagens recebidas destes números são apagadas desta conta ("apagar para mim") assim que chegam. Não tem como recuperar depois.</div>
+            <ul class="list-group mb-3" id="autoDel"></ul>
+            <form class="input-group" id="autoDelForm">
+              <input class="form-control" name="number" placeholder="Número com DDD (ex.: 65 99926-2725)" required>
+              <button class="btn btn-outline-danger" type="submit">Ativar</button>
+            </form>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card shadow-sm">
+          <div class="card-header fw-semibold"><i class="bi bi-person-check me-1"></i>Números autorizados</div>
+          <div class="card-body">
+            <p class="small text-body-secondary">Podem mandar tarefas no privado do seu WhatsApp. Você sempre tem acesso.</p>
+            <ul class="list-group mb-3" id="senders"></ul>
+            <div id="pendingBox" hidden>
+              <h3 class="h6 mt-2">Tentaram falar com o bot</h3>
+              <ul class="list-group mb-3" id="pending"></ul>
+            </div>
+            <form id="senderForm">
+              <div class="row g-2 mb-2">
+                <div class="col-sm-7"><input class="form-control" name="number" placeholder="Número com DDD (ex.: 65 99999-9999)" required></div>
+                <div class="col-sm-5"><input class="form-control" name="name" placeholder="Nome (opcional)"></div>
+              </div>
+              <button class="btn btn-primary" type="submit"><i class="bi bi-person-plus me-1"></i>Autorizar número</button>
+            </form>
+          </div>
+        </div>
+      </div>
     </div>
-  </aside>
+  </div>
+</section>
+
+<!-- ===================== LOGS ===================== -->
+<section class="view page" id="view-logs">
+  <div class="container-fluid py-4">
+    <div class="card shadow-sm"><div class="card-header fw-semibold"><i class="bi bi-terminal me-1"></i>Logs</div>
+      <pre class="card-body bg-dark text-light small font-monospace mb-0 rounded-bottom" id="logBox"></pre></div>
+  </div>
+</section>
 </main>
-<div id="toast"></div>
+</div>
+
+<!-- editor de projeto -->
+<div class="modal fade" id="projModal" tabindex="-1" aria-labelledby="projEditorTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" id="addForm">
+      <div class="modal-header"><h2 class="modal-title fs-5" id="projEditorTitle">Novo projeto</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button></div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-4"><label class="form-label">Nome</label><input class="form-control" name="name" placeholder="ex.: nivix" required></div>
+          <div class="col-md-8"><label class="form-label">Pasta do projeto</label>
+            <div class="input-group"><input class="form-control" name="path" placeholder="C:\Users\...\pasta" required><button class="btn btn-outline-secondary" type="button" onclick="openBrowser()"><i class="bi bi-folder2-open me-1"></i>Procurar</button></div></div>
+          <div class="col-md-6"><label class="form-label">Repositório GitHub <span class="text-body-secondary small">(detectado pela pasta)</span></label><input class="form-control" name="repo" placeholder="https://github.com/dono/repo"></div>
+          <div class="col-md-6"><label class="form-label">Apelidos <span class="text-body-secondary small">(separados por vírgula)</span></label><input class="form-control" name="aliases" placeholder="nuvix, site nivix"></div>
+          <div class="col-md-6"><label class="form-label">Git por tarefa</label>
+            <select class="form-select" name="gitFlow">
+              <option value="">Desligado: trabalha na branch atual</option>
+              <option value="branch">Branch e commit por tarefa (depois /pr ou /descartar)</option>
+            </select></div>
+          <div class="col-md-6"><label class="form-label">Tipo</label>
+            <select class="form-select" name="scope">
+              <option value="">Projeto (pasta)</option>
+              <option value="pc">Modo PC: máquina toda, pede confirmação antes de ações destrutivas</option>
+            </select></div>
+          <div class="col-12"><label class="form-label">Descrição</label><textarea class="form-control" name="description" rows="2" placeholder="O que é o projeto, para quem é, objetivo"></textarea></div>
+          <div class="col-md-6"><label class="form-label">Tecnologias</label><input class="form-control" name="stack" placeholder="ex.: PHP 8, MySQL, JS puro, Apache"></div>
+          <div class="col-md-6"><label class="form-label">URL do site</label><input class="form-control" name="url" placeholder="https://..."></div>
+          <div class="col-12"><label class="form-label">Como rodar e testar</label><input class="form-control" name="testCommand" placeholder="ex.: php -S localhost:8000 router.php"></div>
+          <div class="col-12"><label class="form-label">Observações <span class="text-body-secondary small">(regras que o Claude sempre segue neste projeto)</span></label>
+            <textarea class="form-control" name="notes" rows="4" placeholder="ex.: Não alterar o layout do admin. Sempre manter textos em PT-BR."></textarea></div>
+          <div class="col-12"><label class="form-label">Modo de permissão</label>
+            <select class="form-select" name="permissionMode">
+              <option value="">Padrão do sistema</option>
+              <option value="auto">auto: autônomo com checagem de segurança</option>
+              <option value="acceptEdits">acceptEdits: só edita arquivos</option>
+              <option value="plan">plan: só planeja, não altera nada</option>
+              <option value="bypassPermissions">bypassPermissions: libera tudo</option>
+            </select></div>
+        </div>
+
+        <fieldset class="border rounded-3 p-3 mt-4">
+          <legend class="float-none w-auto px-2 fs-6 fw-semibold mb-0"><i class="bi bi-rulers me-1 text-primary"></i>SDD: especificação antes do código</legend>
+          <p class="small text-body-secondary">O agente escreve a especificação (requisitos, critérios de aceite, plano e tarefas), você aprova, ele executa e confere cada critério. No fim, sugere regras para melhorar as próximas especificações. Em qualquer projeto, comece a mensagem com <code>!spec</code> para forçar, ou <code>!direto</code> para pular.</p>
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">Quando usar</label>
+              <select class="form-select" name="sdd">
+                <option value="">Desligado</option>
+                <option value="auto">Automático: funcionalidades e pedidos grandes</option>
+                <option value="sempre">Sempre: todo pedido de alteração</option>
+              </select></div>
+            <div class="col-md-6"><label class="form-label">Pasta das especificações</label>
+              <div class="input-group"><span class="input-group-text"><i class="bi bi-folder2"></i></span><input class="form-control" name="sddDir" placeholder="docs/specs"></div></div>
+            <div class="col-md-6"><label class="form-label">Retrospectiva e sugestões de melhoria</label>
+              <select class="form-select" name="sddReview">
+                <option value="">Ligada: sugere regras ao fim de cada execução</option>
+                <option value="nao">Desligada</option>
+              </select></div>
+            <div class="col-md-6"><label class="form-label">Instruções para as especificações <span class="text-body-secondary small">(opcional)</span></label>
+              <input class="form-control" name="sddTemplate" placeholder="ex.: incluir impacto no SEO e no mobile"></div>
+            <div class="col-12"><label class="form-label d-flex align-items-center">Regras aprendidas <span class="badge text-bg-primary ms-2" id="sddRulesCount"></span>
+              <span class="text-body-secondary small ms-auto">uma por linha; as sugestões que você aprova entram aqui</span></label>
+              <textarea class="form-control font-monospace small" name="sddRules" rows="4" placeholder="ex.: Sempre listar as páginas afetadas nos critérios de aceite"></textarea></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="border rounded-3 p-3 mt-4">
+          <legend class="float-none w-auto px-2 fs-6 fw-semibold mb-0"><i class="bi bi-mortarboard me-1 text-success"></i>Lições aprendidas</legend>
+          <p class="small text-body-secondary">Quando você corrige o agente ou algo dá errado, ele sugere uma lição (🧠) no WhatsApp. As que você aprova com 👍 entram aqui e valem em todas as próximas tarefas deste projeto, de qualquer tipo.</p>
+          <label class="form-label d-flex align-items-center" for="lessonsField">Lições <span class="badge text-bg-success ms-2" id="lessonsCount"></span>
+            <span class="text-body-secondary small ms-auto">uma por linha</span></label>
+          <textarea class="form-control font-monospace small" id="lessonsField" name="lessons" rows="4" placeholder="ex.: Sempre mandar o print da página depois de mudar o layout"></textarea>
+        </fieldset>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" type="submit" id="projSubmit">Cadastrar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- seletor de pastas -->
+<div class="modal fade" id="browser" tabindex="-1" aria-labelledby="browserTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header flex-wrap gap-2">
+        <h2 class="modal-title fs-5 me-auto" id="browserTitle">Escolher pasta</h2>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary" type="button" onclick="browseTo('')">Unidades</button>
+          <button class="btn btn-outline-secondary" type="button" id="browseHome">Usuário</button>
+          <button class="btn btn-outline-secondary" type="button" id="browseRoot">Projetos</button>
+        </div>
+        <div class="w-100 small font-monospace text-body-secondary text-break" id="browsePath"></div>
+      </div>
+      <div class="modal-body p-0"><div class="list-group list-group-flush" id="browseList"></div></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeBrowser()">Cancelar</button>
+        <button class="btn btn-primary" type="button" id="browsePick">Usar esta pasta</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- confirmação -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h2 class="modal-title fs-5" id="confirmTitle">Confirmar</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button></div>
+      <div class="modal-body" id="confirmBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Voltar</button>
+        <button type="button" class="btn btn-primary" id="confirmOk">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+  <div id="toast" class="toast align-items-center text-bg-dark border-0" role="status" aria-live="polite" aria-atomic="true">
+    <div class="d-flex"><div class="toast-body" id="toastBody"></div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Fechar"></button></div>
+  </div>
+</div>
+
+<script src="/vendor/bootstrap.bundle.min.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmtTime = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  // Formatação estilo WhatsApp: *negrito*, _itálico_, `código`
+  const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+  const dayLabel = (t) => {
+    if (sameDay(t, Date.now())) return 'Hoje';
+    if (sameDay(t, Date.now() - 86400000)) return 'Ontem';
+    return new Date(t).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
+  };
+  const listTime = (t) => (sameDay(t, Date.now()) ? fmtTime(t) : sameDay(t, Date.now() - 86400000) ? 'ontem' : new Date(t).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+  const ago = (t) => {
+    const d = (Date.now() - new Date(t)) / 86400000;
+    return d < 1 ? 'hoje' : d < 2 ? 'ontem' : d < 30 ? `há ${Math.floor(d)} dias` : d < 365 ? `há ${Math.floor(d / 30)} meses` : `há ${Math.floor(d / 365)} anos`;
+  };
+  const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  const store = { get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+  // Formatação do WhatsApp: *negrito*, _itálico_, `código`
   const waFormat = (s) => esc(s)
     .replace(/```([\s\S]*?)```/g, '<code>$1</code>')
     .replace(/`([^`\n]+)`/g, '<code>$1</code>')
     .replace(/(^|\s)\*([^*\n]+)\*/g, '$1<b>$2</b>')
     .replace(/(^|\s)_([^_\n]+)_/g, '$1<i>$2</i>');
+  const repoKey = (url) => (String(url || '').match(/github\.com[/:]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/) || [])[1]?.toLowerCase() || '';
+  // Cor fixa por nome (como os autores num grupo do WhatsApp), tiradas das cores do Bootstrap.
+  const HUES = ['var(--bs-primary)', 'var(--bs-indigo)', 'var(--bs-teal)', 'var(--bs-pink)', 'var(--bs-orange)', 'var(--bs-purple)', 'var(--bs-cyan)'];
+  const hue = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return HUES[h % HUES.length]; };
+  const initials = (s) => String(s || '?').replace(/^[^\p{L}\p{N}]+/u, '').split(/[\s.\-_]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+  const AGENT_ICON = '<i class="bi bi-robot fs-5"></i>';
 
-  function toast(msg) {
-    const t = $('toast'); t.textContent = msg; t.classList.add('show');
-    clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 2500);
+  // ----- componentes do Bootstrap -----
+  function toast(msg, ms = 2800) {
+    bootstrap.Toast.getInstance($('toast'))?.dispose();
+    $('toastBody').textContent = msg;
+    new bootstrap.Toast($('toast'), { delay: ms }).show();
   }
+  const confirmModal = new bootstrap.Modal($('confirmModal'));
+  function confirmBox(html, { title = 'Confirmar', ok = 'Confirmar', danger = false } = {}) {
+    return new Promise((resolve) => {
+      $('confirmTitle').textContent = title;
+      $('confirmBody').innerHTML = html;
+      const b = $('confirmOk');
+      b.textContent = ok;
+      b.className = 'btn ' + (danger ? 'btn-danger' : 'btn-primary');
+      let done = false;
+      b.onclick = () => { done = true; confirmModal.hide(); resolve(true); };
+      $('confirmModal').addEventListener('hidden.bs.modal', () => { if (!done) resolve(false); }, { once: true });
+      confirmModal.show();
+    });
+  }
+  const projModal = new bootstrap.Modal($('projModal'));
+  const browserModal = new bootstrap.Modal($('browser'));
+  let browsing = false; // o cadastro some enquanto o seletor de pastas está aberto, sem perder o que foi digitado
+  $('projModal').addEventListener('hidden.bs.modal', () => { if (!browsing) clearProjectForm(); });
 
   async function post(url, body) {
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
@@ -196,86 +443,318 @@
     return data;
   }
 
-  let lastHistoryLen = -1, lastLogsKey = '';
+  // ----- tema claro/escuro (mesma escolha do dashboard) -----
+  function paintThemeBtn() {
+    const dark = document.documentElement.dataset.bsTheme === 'dark';
+    $('themeBtn').innerHTML = `<i class="bi ${dark ? 'bi-sun' : 'bi-moon-stars'}"></i>`;
+    $('themeBtn').title = dark ? 'Usar tema claro' : 'Usar tema escuro';
+  }
+  function toggleTheme() {
+    const t = document.documentElement.dataset.bsTheme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.bsTheme = t;
+    store.set('tema', t);
+    paintThemeBtn();
+  }
+  paintThemeBtn();
 
+  // ----- navegação -----
+  function toggleMenu(open) { document.body.classList.toggle('menu-open', open); }
+  const VIEWS = ['chat', 'projects', 'github', 'whatsapp', 'logs'];
+  function showView(v) {
+    if (!VIEWS.includes(v)) v = 'chat';
+    for (const a of document.querySelectorAll('#tabs [data-view]')) {
+      const on = a.dataset.view === v;
+      a.classList.toggle('active', on);
+      if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    }
+    for (const s of document.querySelectorAll('.view')) s.classList.toggle('active', s.id === 'view-' + v);
+    const link = document.querySelector(`#tabs [data-view="${v}"]`);
+    $('navTitle').innerHTML = `<i class="bi ${link.dataset.icon} me-2 text-body-secondary"></i>${esc(link.firstChild.nextSibling.textContent.trim())}`;
+    if (location.hash !== '#' + v) history.replaceState(null, '', '#' + v);
+    toggleMenu(false);
+    if (v === 'github') refreshGithub();
+    if (v === 'logs') { const pre = $('logBox'); pre.scrollTop = pre.scrollHeight; }
+  }
+  window.addEventListener('hashchange', () => showView(location.hash.slice(1)));
+
+  // ----- conversas -----
+  let current = store.get('chat') || '';   // jid da conversa aberta
+  let filter = 'all';
+  let msgs = [];                           // mensagens da conversa aberta
+  let lastRev = 0;
+  let workOpen = false;
+  const seen = (() => { try { return JSON.parse(store.get('seen') || '{}'); } catch { return {}; } })();
+  const markSeen = (jid, rev) => { if ((seen[jid] || 0) < rev) { seen[jid] = rev; store.set('seen', JSON.stringify(seen)); } };
+
+  // Lista = conversas com histórico + grupos de projeto + a sua conversa, mesmo sem mensagens ainda.
+  function allChats(s) {
+    const map = new Map(s.chats.map((c) => [c.jid, c]));
+    for (const p of s.projects) if (p.group && !map.has(p.group)) map.set(p.group, { jid: p.group, name: p.name, kind: 'group', project: p.name, rev: 0, last: null, busy: p.busy });
+    for (const j of s.whatsapp.chats) if (!map.has(j) && !j.endsWith('@g.us')) map.set(j, { jid: j, name: 'Você', kind: 'direct', project: 'agente livre', rev: 0, last: null });
+    const list = [...map.values()];
+    for (const c of list) c.agent = c.project === 'agente livre';
+    return list.sort((a, b) => (b.agent - a.agent) || (!!b.busy - !!a.busy) || (b.rev - a.rev));
+  }
+
+  // Cartão do agente: o que ele está fazendo agora, em todas as conversas.
+  function renderAgentCard(s) {
+    const r = s.running;
+    $('agentCard').className = 'card ' + (r.length ? 'border-warning' : 'border-success-subtle');
+    $('agentCard').innerHTML = `<div class="card-body py-2 px-3 small">` + (r.length
+      ? `<div class="fw-semibold mb-1"><span class="spinner-grow spinner-grow-sm text-warning me-2" aria-hidden="true"></span>${r.length === 1 ? 'Trabalhando em 1 tarefa' : `Trabalhando em ${r.length} tarefas`}</div>` +
+        r.map((x) => `<div class="d-flex justify-content-between gap-2"><span class="text-truncate">${esc(x.project)}</span><span class="font-monospace text-warning-emphasis clock" data-started="${x.started}">${clock(Date.now() - x.started)}</span></div>`).join('') +
+        (s.queue.length ? `<div class="text-body-secondary">${s.queue.length} na fila</div>` : '')
+      : `<div class="fw-semibold"><i class="bi bi-check-circle-fill text-success me-1"></i>Agente pronto</div><div class="text-body-secondary">Nenhuma tarefa rodando${s.schedules.length ? `, ${s.schedules.length} agendamento(s)` : ''}</div>`) + '</div>';
+  }
+
+  function renderChatList(s) {
+    renderAgentCard(s);
+    const q = $('chatSearch').value.trim().toLowerCase();
+    const list = allChats(s).filter((c) =>
+      (filter === 'all' || (filter === 'busy' ? c.busy : c.kind === filter)) &&
+      (!q || `${c.name} ${c.project}`.toLowerCase().includes(q)));
+    $('chatList').innerHTML = list.length ? list.map((c) => {
+      const unread = c.rev > (seen[c.jid] || 0) && c.jid !== current && c.last;
+      const preview = c.busy ? '<span class="text-warning-emphasis fw-semibold">trabalhando…</span>'
+        : c.last ? `${c.last.from === 'bot' ? 'Agente: ' : c.last.who && c.kind === 'group' ? esc(c.last.who.split(' ')[0]) + ': ' : ''}${esc(c.last.text.replace(/[*_`]/g, ''))}`
+        : (c.agent ? 'Peça qualquer coisa no PC' : c.kind === 'group' ? 'Grupo do projeto, sem mensagens ainda' : 'Sem mensagens ainda');
+      return `<button type="button" class="list-group-item list-group-item-action d-flex gap-3 align-items-center py-2${c.jid === current ? ' active' : ''}" onclick="openChat('${esc(c.jid)}')"${c.jid === current ? ' aria-current="true"' : ''}>
+        <span class="avatar" style="background:${c.agent ? 'var(--bs-dark)' : hue(c.name)}">${c.agent ? AGENT_ICON : esc(initials(c.name))}${c.busy ? '<span class="busy" title="Trabalhando"></span>' : ''}</span>
+        <span class="flex-grow-1 min-w-0">
+          <span class="d-flex gap-2 align-items-baseline"><span class="fw-semibold text-truncate flex-grow-1">${c.agent ? 'Agente livre' : esc(c.name)}</span>${c.last ? `<small class="${unread ? 'fw-bold' : 'opacity-75'}">${listTime(c.last.time)}</small>` : ''}</span>
+          <span class="d-flex gap-2 align-items-center small"><span class="text-truncate flex-grow-1 opacity-75">${preview}</span>${unread ? '<span class="badge rounded-pill text-bg-primary" title="Mensagens novas">novo</span>' : ''}</span>
+        </span></button>`;
+    }).join('') : `<div class="text-center text-body-secondary small p-4">${q || filter !== 'all' ? 'Nenhuma conversa com esse filtro.' : 'Nenhuma conversa ainda. As mensagens aparecem aqui assim que alguém falar com o agente.'}</div>`;
+  }
+
+  async function openChat(jid) {
+    if (jid !== current) { current = jid; store.set('chat', jid); msgs = []; lastRev = 0; workOpen = false; $('messages').innerHTML = ''; }
+    $('view-chat').classList.add('open');
+    renderConvo();
+    if (window._state) renderChatList(window._state);
+    await loadMessages(true);
+    if (!msgs.length) renderMessages(true);
+    $('taskText').focus();
+  }
+  function closeChat() { $('view-chat').classList.remove('open'); }
+
+  async function loadMessages(scroll) {
+    if (!current) return;
+    const jid = current;
+    try {
+      const r = await fetch(`/api/chat?jid=${encodeURIComponent(jid)}&after=${lastRev}`);
+      const d = await r.json();
+      if (jid !== current || !d.messages?.length) return;
+      msgs.push(...d.messages);
+      lastRev = msgs[msgs.length - 1].rev;
+      markSeen(jid, lastRev);
+      renderMessages(scroll);
+    } catch {}
+  }
+
+  function renderMessages(forceScroll) {
+    const box = $('messages');
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    const group = currentChat()?.kind === 'group';
+    let html = '', prev = null;
+    for (const m of msgs) {
+      if (!prev || !sameDay(prev.time, m.time)) html += `<span class="day badge bg-body text-body-secondary border">${dayLabel(m.time)}</span>`;
+      const out = m.from === 'bot';
+      const first = !prev || prev.from !== m.from || prev.who !== m.who || !sameDay(prev.time, m.time);
+      const who = !out && first && (group || m.who === 'Painel') && m.who ? `<b class="who" style="color:${hue(m.who)}">${esc(m.who)}</b>` : '';
+      html += `<div class="msg ${out ? 'out' : 'in'}${first ? ' first' : ''}">${who}${renderFiles(m.files)}${waFormat(m.text)}<time>${fmtTime(m.time)}</time></div>`;
+      prev = m;
+    }
+    box.innerHTML = html || '<div class="text-center text-body-secondary m-auto p-4">Nenhuma mensagem ainda nesta conversa. Escreva abaixo para mandar uma tarefa.</div>';
+    if (forceScroll || atBottom) box.scrollTop = box.scrollHeight;
+  }
+
+  const currentChat = () => (window._state ? allChats(window._state).find((c) => c.jid === current) : null);
+
+  function renderConvo() {
+    const s = window._state;
+    const c = currentChat();
+    const has = !!(s && c);
+    $('welcome').classList.toggle('d-none', has);
+    for (const id of ['convoHead', 'messages', 'composer']) $(id).hidden = !has;
+    if (!has) { $('work').hidden = true; return; }
+    $('convoAvatar').style.background = c.agent ? 'var(--bs-dark)' : hue(c.name);
+    $('convoAvatar').innerHTML = c.agent ? AGENT_ICON : esc(initials(c.name));
+    $('convoName').textContent = c.agent ? 'Agente livre' : c.name;
+    const runs = s.running.filter((r) => r.jid === c.jid);
+    $('convoState').className = 'badge ' + (runs.length ? 'text-bg-warning' : 'text-bg-secondary');
+    $('convoState').textContent = runs.length ? (runs.length > 1 ? `${runs.length} tarefas rodando` : 'trabalhando') : 'ocioso';
+    $('convoSub').textContent = c.kind === 'group' ? `Grupo${c.project ? ` do projeto ${c.project}` : ''}` : c.kind === 'panel' ? 'Mensagens do painel' : 'Conversa direta: agente livre no PC';
+    $('target').classList.toggle('d-none', c.kind === 'group' && !!c.project);
+    renderWork(s, c);
+    renderTargetSelect();
+  }
+
+  // Faixa "trabalhando": tarefas desta conversa, com o passo atual ao vivo.
+  function renderWork(s, c) {
+    const runs = s.running.filter((r) => r.jid === c.jid);
+    const waiting = s.queue.filter((q) => q.jid === c.jid);
+    const box = $('work');
+    box.hidden = !runs.length && !waiting.length;
+    if (box.hidden) return;
+    box.className = 'alert alert-warning rounded-0 border-0 border-bottom mb-0 py-2 px-3';
+    box.innerHTML = runs.map((r) => `
+      <div class="d-flex align-items-center gap-3" role="button" onclick="toggleWork()" title="Ver os passos">
+        <span class="spinner-grow spinner-grow-sm" aria-hidden="true"></span>
+        <div class="flex-grow-1 min-w-0"><b>${esc(r.project)}${r.lane === 'wt' ? ' <span class="badge text-bg-secondary">paralela</span>' : ''}</b>${r.who ? `, pedido de ${esc(r.who)}` : ''}
+          <div class="small font-monospace text-truncate">${esc(r.tools[r.tools.length - 1] || 'começando…')}</div></div>
+        <span class="badge text-bg-dark font-monospace clock" data-started="${r.started}">${clock(Date.now() - r.started)}</span>
+        <button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); cancelTask(false, '${esc(r.project)}')">Cancelar</button>
+      </div>
+      <ol class="small font-monospace mt-2 mb-1 steps-list" ${workOpen ? '' : 'hidden'}>${r.tools.map((t) => `<li>${esc(t)}</li>`).join('') || '<li>sem passos ainda</li>'}</ol>`).join('') +
+      (waiting.length ? `<div class="small mt-1"><i class="bi bi-hourglass-split me-1"></i>Na fila: ${waiting.map((q) => esc(q.text.slice(0, 80))).join('; ')}</div>` : '');
+  }
+  function toggleWork() { workOpen = !workOpen; for (const ol of $('work').querySelectorAll('ol')) ol.hidden = !workOpen; }
+  setInterval(() => { for (const el of document.querySelectorAll('.clock[data-started]')) el.textContent = clock(Date.now() - Number(el.dataset.started)); }, 1000);
+
+  for (const b of document.querySelectorAll('#filters button')) b.addEventListener('click', () => {
+    filter = b.dataset.f;
+    for (const x of document.querySelectorAll('#filters button')) x.classList.toggle('active', x === b);
+    if (window._state) renderChatList(window._state);
+  });
+  $('chatSearch').addEventListener('input', () => window._state && renderChatList(window._state));
+
+  const WA_CLASS = (st) => st === 'conectado' ? 'text-bg-success' : st === 'reconectando' || st === 'sistema desligado' ? 'text-bg-danger' : 'text-bg-warning';
+  function paintWa(st) {
+    $('waBadge').className = 'badge ' + WA_CLASS(st);
+    $('waBadge').innerHTML = `<i class="bi bi-whatsapp me-1"></i>${esc(st)}`;
+    $('status').className = 'badge ' + WA_CLASS(st);
+    $('status').textContent = st;
+  }
+
+  let lastLogsKey = '';
   function render(s) {
+    window._state = s;
     const st = s.whatsapp.status;
-    const pill = $('status');
-    pill.textContent = st;
-    pill.className = 'pill' + (st === 'conectado' ? ' ok' : st === 'reconectando' ? ' err' : '');
-    $('meta').innerHTML = `${esc(s.whatsapp.user || '')}<br>modo: ${esc(s.permissionMode)} · ${s.whatsapp.chats.length ? 'conversa vinculada' : 'sem conversa vinculada (envie /vincular)'}`;
+    paintWa(st);
+    const groups = s.projects.filter((p) => p.group).length;
+    $('badgeRun').hidden = !s.running.length;
+    $('badgeRun').textContent = s.running.length;
+    $('ghRoot').textContent = s.projectsRoot;
 
     $('qrCard').hidden = !s.qr;
     if (s.qr) $('qr').innerHTML = `<img src="${s.qr}" alt="QR Code">`;
+    $('waInfo').innerHTML = `
+      <li class="list-group-item d-flex justify-content-between"><span>Status</span><span class="badge ${WA_CLASS(st)}">${esc(st)}</span></li>
+      <li class="list-group-item d-flex justify-content-between"><span>Conta</span><b>${esc((s.whatsapp.user || 'nenhuma').split(':')[0])}</b></li>
+      <li class="list-group-item d-flex justify-content-between"><span>Conversas vinculadas</span><b>${s.whatsapp.chats.length}, sendo ${groups} grupo(s) de projeto</b></li>
+      <li class="list-group-item d-flex justify-content-between"><span>Modo de permissão</span><code>${esc(s.permissionMode)}</code></li>
+      ${s.whatsapp.chats.length ? '' : '<li class="list-group-item list-group-item-info small">Envie <b>/vincular</b> numa conversa sua (ex.: "Você") para começar.</li>'}`;
 
-    // Conversa
-    if (s.history.length !== lastHistoryLen) {
-      const box = $('messages');
-      const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
-      box.innerHTML = s.history.length
-        ? s.history.map((m) => `<div class="msg ${m.from}">${m.who ? `<b class="who">${esc(m.who)}</b>` : ''}${renderFiles(m.files)}${waFormat(m.text)}<time>${fmtTime(m.time)}</time></div>`).join('')
-        : '<p class="empty">Nenhuma mensagem ainda.</p>';
-      if (atBottom || lastHistoryLen === -1) box.scrollTop = box.scrollHeight;
-      lastHistoryLen = s.history.length;
-    }
+    // Conversas
+    renderChatList(s);
+    renderConvo();
+    const c = currentChat();
+    if (c && c.rev > lastRev) loadMessages(false);
 
-    // Tarefa atual
-    const r = s.running;
-    $('running').innerHTML = r
-      ? `<p class="running-text"><b>${esc(r.project)}</b> · ${Math.round((Date.now() - r.started) / 60000)} min<br>${esc(r.text)}</p>
-         <ul class="tools">${r.tools.slice().reverse().map((t) => `<li title="${esc(t)}">${esc(t)}</li>`).join('') || '<li>iniciando…</li>'}</ul>
-         <button class="danger" onclick="cancelTask(false)">Cancelar</button>
-         ${s.queue.length ? '<button class="danger" onclick="cancelTask(true)">Cancelar tudo</button>' : ''}`
-      : '<p class="muted">Nenhuma tarefa em andamento.</p>';
-
-    $('queueCard').hidden = !s.queue.length;
-    $('queue').innerHTML = s.queue.map((q) => `<li><b>${esc(q.project)}</b> — ${esc(q.text)}</li>`).join('');
+    $('schedCard').hidden = !s.schedules.length;
+    $('schedules').innerHTML = s.schedules.map((x) => `
+      <li class="list-group-item d-flex align-items-center gap-2"><div class="flex-grow-1">${esc(x.text)}</div><button class="btn btn-sm btn-outline-danger" onclick="removeSchedule(${x.id})">Remover</button></li>`).join('');
 
     // Projetos
     window._projects = s.projects;
-    $('projects').innerHTML = s.projects.length
-      ? s.projects.map((p) => `
-        <div class="project">
-          <span class="name">${esc(p.name)}</span>${p.current ? '<span class="tag">atual</span>' : ''}
-          <div class="path">${esc(p.path)}</div>
-          ${p.aliases.length ? `<div class="muted">apelidos: ${esc(p.aliases.join(', '))}</div>` : ''}
-          ${p.description ? `<div class="muted">${esc(p.description)}</div>` : ''}
-          ${p.notes ? `<div class="notes">📝 ${esc(p.notes)}</div>` : ''}
-          <div class="actions">
-            <button class="small" onclick="editProject('${esc(p.name)}')">Editar</button>
-            ${p.current ? '' : `<button class="small" onclick="act('/api/projects/use','${esc(p.name)}')">Usar</button>`}
-            ${p.hasSession ? `<button class="small" onclick="act('/api/projects/new','${esc(p.name)}','Conversa reiniciada')">Nova conversa</button>` : ''}
-            <button class="small danger" onclick="removeProject('${esc(p.name)}')">Remover</button>
+    const connected = st === 'conectado';
+    $('projectGrid').innerHTML = s.projects.length
+      ? s.projects.map((p) => {
+        const n = esc(p.name);
+        const g = p.git;
+        return `
+        <div class="col"><div class="card shadow-sm h-100${p.busy ? ' border-warning' : ''}">
+          <div class="card-body d-flex flex-column gap-1">
+            <div class="d-flex align-items-center gap-1 flex-wrap mb-1">
+              <h3 class="h6 mb-0 me-1">${p.scope === 'pc' ? '<i class="bi bi-pc-display me-1"></i>' : '<i class="bi bi-folder2 me-1 text-primary"></i>'}${n}</h3>
+              ${p.current ? '<span class="badge text-bg-primary">atual</span>' : ''}${p.group ? '<span class="badge text-bg-success"><i class="bi bi-whatsapp"></i> grupo</span>' : ''}${p.busy ? '<span class="badge text-bg-warning">trabalhando</span>' : ''}${p.sdd ? `<span class="badge text-bg-info" title="Especificação antes do código${p.sddRules ? ` · ${p.sddRules.split('\n').filter((l) => l.trim()).length} regra(s) aprendida(s)` : ''}"><i class="bi bi-rulers"></i> SDD ${p.sdd === 'sempre' ? 'sempre' : 'auto'}</span>` : ''}${p.lessons?.trim() ? `<span class="badge text-bg-success" title="Lições aprovadas que valem em todas as tarefas"><i class="bi bi-mortarboard"></i> ${p.lessons.split('\n').filter((l) => l.trim()).length} lição(ões)</span>` : ''}
+            </div>
+            <div class="small font-monospace text-body-secondary text-break">${esc(p.path)}</div>
+            ${g?.isRepo ? `<div class="small font-monospace text-body-secondary"><i class="bi bi-git me-1"></i>${esc(g.branch)}${g.changes ? ` <span class="badge text-bg-warning">${g.changes} alteração(ões)</span>` : ''}${g.lastCommit ? `<div class="text-truncate">${esc(g.lastCommit)}</div>` : ''}</div>` : ''}
+            ${p.repo ? `<div class="small"><a href="${esc(p.repo)}" target="_blank" rel="noopener"><i class="bi bi-github me-1"></i>${esc(repoKey(p.repo) || p.repo)}</a>${p.gitFlow === 'branch' ? ' <span class="badge text-bg-info">branch por tarefa</span>' : ''}</div>` : ''}
+            ${p.aliases.length ? `<div class="small text-body-secondary">apelidos: ${esc(p.aliases.join(', '))}</div>` : ''}
+            ${p.description ? `<div class="small text-body-secondary">${esc(p.description)}</div>` : ''}
+            ${p.notes ? `<div class="small bg-body-secondary rounded p-2 notes">${esc(p.notes)}</div>` : ''}
           </div>
-        </div>`).join('')
-      : '<p class="muted">Nenhum projeto cadastrado.</p>';
+          <div class="card-footer bg-transparent d-flex flex-wrap gap-1">
+            <button class="btn btn-sm btn-primary" onclick="chatWith('${n}')"><i class="bi bi-chat-dots me-1"></i>Conversar</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="editProject('${n}')"><i class="bi bi-pencil me-1"></i>Editar</button>
+            ${!p.group && connected ? `<button class="btn btn-sm btn-outline-success" onclick="createGroup('${n}')">Criar grupo</button>` : ''}
+            ${p.gitBranch ? `<button class="btn btn-sm btn-outline-primary" onclick="gitAct('${n}','pr')">Abrir PR</button><button class="btn btn-sm btn-outline-danger" onclick="gitAct('${n}','descartar')">Descartar branch</button>` : ''}
+            ${p.hasSession ? `<button class="btn btn-sm btn-outline-secondary" onclick="act('/api/projects/new','${n}','Conversa reiniciada')">Nova conversa</button>` : ''}
+            <button class="btn btn-sm btn-outline-danger ms-auto" onclick="removeProject('${n}')" title="Remover projeto" aria-label="Remover projeto"><i class="bi bi-trash3"></i></button>
+          </div>
+        </div></div>`;
+      }).join('')
+      : '<div class="col-12"><div class="alert alert-info mb-0">Nenhum projeto cadastrado. Clique em <b>Novo projeto</b> ou baixe um do GitHub.</div></div>';
+
+    $('autoDel').innerHTML = (s.autoDelete || []).length
+      ? s.autoDelete.map((n) => `<li class="list-group-item d-flex align-items-center"><b class="flex-grow-1">${esc(n)}</b><button class="btn btn-sm btn-outline-secondary" onclick="setAutoDelete('${esc(n)}', false)">Desativar</button></li>`).join('')
+      : '<li class="list-group-item text-body-secondary small">Nenhum número.</li>';
 
     // Números autorizados
     window._pending = s.pendingSenders;
     $('senders').innerHTML = s.senders.length
       ? s.senders.map((p) => `
-        <div class="project">
-          <span class="name">${esc(p.name || p.number)}</span>
-          ${p.name ? `<div class="path">${esc(p.number)}</div>` : ''}
-          <div class="actions"><button class="small danger" onclick="removeSender('${esc(p.number)}')">Remover</button></div>
-        </div>`).join('')
-      : '<p class="muted">Nenhum outro número autorizado.</p>';
+        <li class="list-group-item d-flex align-items-center gap-2">
+          <div class="flex-grow-1"><b>${esc(p.name || p.number)}</b>${p.name ? `<div class="small font-monospace text-body-secondary">${esc(p.number)}</div>` : ''}</div>
+          <button class="btn btn-sm btn-outline-danger" onclick="removeSender('${esc(p.number)}')">Remover</button>
+        </li>`).join('')
+      : '<li class="list-group-item text-body-secondary small">Nenhum outro número autorizado.</li>';
     $('pendingBox').hidden = !s.pendingSenders.length;
     $('pending').innerHTML = s.pendingSenders.map((p, i) => `
-      <div class="project">
-        <span class="name">${esc(p.name || p.number)}</span> <span class="muted">${esc(p.number)} · ${p.count}x · ${fmtTime(p.time)}</span>
-        <div class="path">"${esc(p.lastText)}"</div>
-        <div class="actions"><button class="small" onclick="approvePending(${i})">Autorizar</button></div>
-      </div>`).join('');
+      <li class="list-group-item list-group-item-warning">
+        <div class="d-flex align-items-center gap-2"><b>${esc(p.name || p.number)}</b><span class="small">${esc(p.number)}, ${p.count} vez(es), às ${fmtTime(p.time)}</span>
+          <button class="btn btn-sm btn-success ms-auto" onclick="approvePending(${i})">Autorizar</button></div>
+        <div class="small fst-italic text-truncate">"${esc(p.lastText)}"</div>
+      </li>`).join('');
 
     // Logs
     const key = s.logs.length + (s.logs[s.logs.length - 1] || '');
     if (key !== lastLogsKey) {
-      const pre = $('logs');
+      const pre = $('logBox');
+      const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 60;
       pre.textContent = s.logs.join('\n');
-      pre.scrollTop = pre.scrollHeight;
+      if (atBottom || !lastLogsKey) pre.scrollTop = pre.scrollHeight;
       lastLogsKey = key;
     }
+  }
+
+  // ----- projeto da tarefa (conversas diretas): agente livre, projetos ou repositórios do GitHub -----
+  function renderTargetSelect() {
+    const s = window._state;
+    if (!s) return;
+    const sel = $('taskProject');
+    const known = new Set(s.projects.map((p) => repoKey(p.repo)).filter(Boolean));
+    const remote = (ghRepos.list || []).filter((r) => !known.has(r.nameWithOwner.toLowerCase()));
+    const c = currentChat();
+    const auto = c?.kind === 'group' ? 'Projeto do grupo' : 'Automático (agente livre ou projeto citado)';
+    const opts = `<option value="">${auto}</option>` +
+      (s.projects.length ? `<optgroup label="Projetos no computador">${s.projects.map((p) => `<option value="${esc(p.name)}">${p.scope === 'pc' ? '🖥️ ' : ''}${esc(p.name)}</option>`).join('')}</optgroup>` : '') +
+      (remote.length ? `<optgroup label="GitHub: baixa ao enviar">${remote.map((r) => `<option value="gh:${esc(r.nameWithOwner)}">${esc(r.nameWithOwner)}</option>`).join('')}</optgroup>` : '');
+    if (sel.dataset.opts !== opts) {
+      const v = sel.value || store.get('taskProject');
+      sel.innerHTML = opts; sel.dataset.opts = opts;
+      sel.value = [...sel.options].some((o) => o.value === v) ? v : '';
+    }
+    updateTargetHint();
+  }
+  function updateTargetHint() {
+    const v = $('taskProject').value;
+    $('targetHint').textContent = v.startsWith('gh:') ? 'não está no computador: será baixado ao enviar' : '';
+  }
+  $('taskProject').addEventListener('change', (e) => { store.set('taskProject', e.target.value); updateTargetHint(); });
+
+  // "Conversar" num projeto: abre o grupo dele; sem grupo, a sua conversa com o projeto escolhido.
+  function chatWith(name) {
+    const s = window._state;
+    const p = s?.projects.find((x) => x.name === name);
+    const jid = p?.group || s?.whatsapp.chats.find((j) => !j.endsWith('@g.us')) || 'painel';
+    showView('chat');
+    openChat(jid).then(() => {
+      if (!p?.group) { $('taskProject').value = name; store.set('taskProject', name); updateTargetHint(); }
+    });
   }
 
   async function refresh() {
@@ -283,29 +762,53 @@
       const r = await fetch('/api/state');
       render(await r.json());
     } catch {
-      const pill = $('status'); pill.textContent = 'sistema desligado'; pill.className = 'pill err';
+      paintWa('sistema desligado');
     }
   }
 
   async function act(url, name, msg) {
     try { await post(url, { name }); if (msg) toast(msg); } catch (e) { toast(e.message); }
   }
-  async function cancelTask(all) {
-    try { await post('/api/cancel', { all }); toast('Cancelando…'); } catch (e) { toast(e.message); }
+  async function cancelTask(all, project) {
+    if (!(await confirmBox(project ? `Cancelar a tarefa de <b>${esc(project)}</b>?` : 'Cancelar <b>todas</b> as tarefas rodando?', { title: 'Cancelar tarefa', ok: 'Cancelar tarefa', danger: true }))) return;
+    try { await post('/api/cancel', { all, project }); toast('Cancelando…'); } catch (e) { toast(e.message); }
   }
   async function removeProject(name) {
-    if (confirm(`Remover o projeto "${name}"? (a pasta não é apagada)`)) act('/api/projects/remove', name, 'Projeto removido');
+    if (await confirmBox(`Remover o projeto <b>${esc(name)}</b>? A pasta não é apagada.`, { title: 'Remover projeto', ok: 'Remover', danger: true })) act('/api/projects/remove', name, 'Projeto removido');
   }
-
+  async function createGroup(name) {
+    try { await post('/api/projects/group', { name }); toast('Grupo criado no WhatsApp'); } catch (e) { toast(e.message); }
+  }
+  async function gitAct(name, action) {
+    if (action === 'descartar' && !(await confirmBox(`Descartar a branch da tarefa em <b>${esc(name)}</b>? As alterações dela serão apagadas.`, { title: 'Descartar branch', ok: 'Descartar', danger: true }))) return;
+    if (action === 'pr' && !(await confirmBox(`Enviar a branch de <b>${esc(name)}</b> para o GitHub e abrir o Pull Request?`, { title: 'Abrir Pull Request', ok: 'Enviar e abrir PR' }))) return;
+    toast(action === 'pr' ? 'Abrindo PR…' : 'Descartando…');
+    try {
+      const r = await post('/api/projects/git', { name, action });
+      if (r.url) window.open(r.url, '_blank', 'noopener');
+      toast(action === 'pr' ? 'Pull Request aberto' : 'Branch descartada');
+    } catch (e) { toast(e.message); }
+  }
+  async function removeSchedule(id) {
+    try { await post('/api/schedules/remove', { id }); toast('Agendamento removido'); } catch (e) { toast(e.message); }
+  }
   async function removeSender(number) {
-    if (!confirm(`Remover o acesso de ${number}?`)) return;
+    if (!(await confirmBox(`Remover o acesso de <b>${esc(number)}</b>?`, { title: 'Remover acesso', ok: 'Remover', danger: true }))) return;
     try { await post('/api/senders/remove', { number }); toast('Acesso removido'); } catch (e) { toast(e.message); }
   }
   async function approvePending(i) {
     const p = window._pending[i];
-    if (!p || !confirm(`Autorizar ${p.name || p.number} a mandar tarefas para o Claude neste computador?`)) return;
+    if (!p || !(await confirmBox(`Autorizar <b>${esc(p.name || p.number)}</b> a mandar tarefas para o Claude neste computador?`, { title: 'Autorizar número', ok: 'Autorizar' }))) return;
     try { await post('/api/senders', { number: p.number, name: p.name, ids: p.ids }); toast('Número autorizado'); } catch (e) { toast(e.message); }
   }
+  async function setAutoDelete(number, enabled) {
+    if (enabled && !(await confirmBox(`Apagar automaticamente toda mensagem recebida de <b>${esc(number)}</b> a partir de agora?<div class="alert alert-danger small mt-3 mb-0">As mensagens somem desta conta e não podem ser recuperadas.</div>`, { title: 'Apagar automaticamente', ok: 'Ativar', danger: true }))) return false;
+    try { await post('/api/autodelete', { number, enabled }); toast(enabled ? 'Ativado' : 'Desativado'); return true; } catch (e) { toast(e.message); return false; }
+  }
+  $('autoDelForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (await setAutoDelete(new FormData(e.target).get('number'), true)) e.target.reset();
+  });
   $('senderForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -318,7 +821,7 @@
     return '<div class="files">' + files.map((f) => {
       const url = '/uploads/' + encodeURIComponent(f);
       return /\.pdf$/i.test(f)
-        ? `<a href="${url}" target="_blank" rel="noopener">📄 ${esc(f)}</a>`
+        ? `<a href="${url}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf me-1"></i>${esc(f)}</a>`
         : `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="imagem enviada"></a>`;
     }).join('') + '</div>';
   }
@@ -332,8 +835,8 @@
     box.hidden = !pendingFiles.length;
     box.innerHTML = pendingFiles.map((f, i) => `
       <div class="chip">
-        ${f.type === 'application/pdf' ? `<div class="pdf">PDF</div>` : `<img src="${f.preview}" alt="">`}
-        <button type="button" onclick="removeAttachment(${i})" title="Remover">×</button>
+        ${f.type === 'application/pdf' ? `<div class="pdf rounded border bg-body-secondary small">PDF</div>` : `<img class="rounded border" src="${f.preview}" alt="">`}
+        <button type="button" class="btn btn-sm btn-danger rounded-pill py-0 px-1" onclick="removeAttachment(${i})" title="Remover" aria-label="Remover anexo"><i class="bi bi-x"></i></button>
       </div>`).join('');
   }
   function removeAttachment(i) { pendingFiles.splice(i, 1); renderAttachments(); }
@@ -357,52 +860,76 @@
     const files = [...(e.clipboardData?.files || [])];
     if (files.length) { e.preventDefault(); addFiles(files); }
   });
-  const chatCard = document.querySelector('.chat');
-  chatCard.addEventListener('dragover', (e) => e.preventDefault());
-  chatCard.addEventListener('drop', (e) => { e.preventDefault(); addFiles(e.dataTransfer.files); });
+  $('convo').addEventListener('dragover', (e) => e.preventDefault());
+  $('convo').addEventListener('drop', (e) => { e.preventDefault(); if (current) addFiles(e.dataTransfer.files); });
+  $('taskText').addEventListener('input', (e) => { e.target.style.height = 'auto'; e.target.style.height = Math.min(160, e.target.scrollHeight) + 'px'; });
 
   $('sendForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const ta = $('taskText');
     const text = ta.value.trim();
-    if (!text && !pendingFiles.length) return;
+    if (!current || (!text && !pendingFiles.length)) return;
+    const c = currentChat();
+    const project = c?.kind === 'group' && c.project ? null : $('taskProject').value || null;
     const files = pendingFiles.map(({ name, type, data }) => ({ name, type, data }));
     const saved = pendingFiles;
-    ta.value = '';
+    ta.value = ''; ta.style.height = '';
     pendingFiles = [];
     renderAttachments();
-    try { await post('/api/task', { text, files }); }
+    const btn = $('sendBtn');
+    if (project?.startsWith('gh:')) { btn.disabled = true; toast(`Baixando ${project.slice(3)} do GitHub…`, 60000); }
+    try {
+      const r = await post('/api/task', { text, files, project, jid: current === 'painel' ? null : current });
+      if (r.jid && r.jid !== current) openChat(r.jid);
+      if (project?.startsWith('gh:') && r.project) {
+        toast(`Projeto ${r.project} baixado e cadastrado`);
+        store.set('taskProject', r.project);
+        $('taskProject').dataset.opts = ''; // recria a lista já com o projeto novo
+        await refresh();
+        $('taskProject').value = r.project;
+        updateTargetHint();
+      }
+    }
     catch (err) { toast(err.message); ta.value = text; pendingFiles = saved; renderAttachments(); }
+    finally { btn.disabled = false; }
   });
   $('taskText').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('sendForm').requestSubmit(); }
   });
-  const PROJECT_FIELDS = ['name', 'path', 'description', 'stack', 'url', 'testCommand', 'notes', 'permissionMode'];
 
+  // ----- cadastro de projeto -----
+  const PROJECT_FIELDS = ['name', 'path', 'repo', 'gitFlow', 'scope', 'description', 'stack', 'url', 'testCommand', 'notes', 'permissionMode', 'sdd', 'sddDir', 'sddReview', 'sddTemplate', 'sddRules', 'lessons'];
+  const countLines = (field, badge) => { const n = $('addForm').elements[field].value.split('\n').filter((l) => l.trim()).length; $(badge).textContent = n || ''; $(badge).hidden = !n; };
+  const countRules = () => { countLines('sddRules', 'sddRulesCount'); countLines('lessons', 'lessonsCount'); };
+  $('addForm').elements.sddRules.addEventListener('input', countRules);
+  $('addForm').elements.lessons.addEventListener('input', countRules);
+
+  function clearProjectForm() {
+    const form = $('addForm');
+    form.reset();
+    form.elements.name.readOnly = false;
+    $('projEditorTitle').textContent = 'Novo projeto';
+    $('projSubmit').textContent = 'Cadastrar';
+    countRules();
+  }
+  function newProject() {
+    clearProjectForm();
+    projModal.show();
+    $('projModal').addEventListener('shown.bs.modal', () => $('addForm').elements.name.focus(), { once: true });
+  }
   function editProject(name) {
     const p = (window._projects || []).find((x) => x.name === name);
     if (!p) return;
     const form = $('addForm');
+    clearProjectForm();
     for (const f of PROJECT_FIELDS) form.elements[f].value = p[f] || '';
     form.elements.aliases.value = (p.aliases || []).join(', ');
     form.elements.name.readOnly = true;
-    $('projEditorTitle').textContent = `Editando: ${p.name}`;
+    $('projEditorTitle').textContent = `Editar: ${p.name}`;
     $('projSubmit').textContent = 'Salvar alterações';
-    $('projCancel').hidden = false;
-    $('projEditor').open = true;
-    $('projEditor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    countRules();
+    projModal.show();
   }
-
-  function resetProjectForm() {
-    const form = $('addForm');
-    form.reset();
-    form.elements.name.readOnly = false;
-    $('projEditorTitle').textContent = '+ Cadastrar projeto';
-    $('projSubmit').textContent = 'Cadastrar';
-    $('projCancel').hidden = true;
-    $('projEditor').open = false;
-  }
-
   $('addForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -411,12 +938,191 @@
     const editing = e.target.elements.name.readOnly;
     try {
       await post('/api/projects', body);
-      resetProjectForm();
+      projModal.hide();
       toast(editing ? 'Projeto atualizado' : 'Projeto cadastrado');
     } catch (err) { toast(err.message); }
   });
 
-  refresh();
+  // ----- seletor de pastas (abre por cima do cadastro e volta para ele) -----
+  let browseCurrent = '';
+  async function browseTo(p) {
+    try {
+      const r = await post('/api/browse', { path: p });
+      browseCurrent = r.path;
+      $('browseHome').onclick = () => browseTo(r.home);
+      $('browseRoot').onclick = () => browseTo(window._state?.projectsRoot || r.home);
+      $('browsePath').innerHTML = r.path ? `${esc(r.path)}${r.isGit ? ' <span class="badge text-bg-success">git</span>' : ''}` : 'Unidades';
+      $('browsePick').disabled = !r.path;
+      window._browse = r.dirs;
+      window._browseParent = r.parent || '';
+      $('browseList').innerHTML =
+        (r.path ? '<button type="button" class="list-group-item list-group-item-action" onclick="browseTo(window._browseParent)"><i class="bi bi-arrow-90deg-up me-2"></i>..</button>' : '') +
+        (r.dirs.map((d, i) => `<button type="button" class="list-group-item list-group-item-action d-flex align-items-center" onclick="browseTo(window._browse[${i}].path)"><i class="bi bi-folder-fill text-warning me-2"></i><span class="flex-grow-1 text-truncate">${esc(d.name)}</span>${d.git ? '<span class="badge text-bg-success">git</span>' : ''}</button>`).join('') ||
+        '<div class="list-group-item text-body-secondary">Sem subpastas</div>');
+    } catch (e) { toast(e.message); }
+  }
+  function openBrowser() {
+    const cur = $('addForm').elements.path.value.trim();
+    browsing = true;
+    $('projModal').addEventListener('hidden.bs.modal', () => browserModal.show(), { once: true });
+    projModal.hide();
+    browseTo(cur || window._state?.projectsRoot || '');
+  }
+  function closeBrowser() { browserModal.hide(); }
+  $('browser').addEventListener('hidden.bs.modal', () => {
+    $('projModal').addEventListener('shown.bs.modal', () => { browsing = false; }, { once: true });
+    projModal.show();
+  });
+  $('browsePick').addEventListener('click', () => {
+    const form = $('addForm');
+    form.elements.path.value = browseCurrent;
+    if (!form.elements.name.value && !form.elements.name.readOnly) {
+      form.elements.name.value = browseCurrent.split(/[\\/]/).filter(Boolean).pop().replace(/\.(com|net|org)(\.br)?$/i, '').toLowerCase();
+    }
+    closeBrowser();
+  });
+
+  // ----- GitHub -----
+  let gh = null;
+  let ghRepos = { owner: null, list: null, loading: false };
+  let ghTimer = null;
+
+  async function refreshGithub() {
+    try {
+      gh = await post('/api/github');
+    } catch (e) {
+      gh = { installed: true, connected: false, error: e.message, loginFlow: { status: 'idle' } };
+    }
+    renderGithub();
+    clearTimeout(ghTimer);
+    // Durante o login confere a cada 2s; fora dele, a cada minuto.
+    ghTimer = setTimeout(refreshGithub, gh.loginFlow?.status === 'waiting' ? 2000 : 60000);
+    if (gh.connected && !ghRepos.list && !ghRepos.loading) loadRepos();
+  }
+
+  function renderGithub() {
+    const box = $('ghAccount');
+    const flow = gh.loginFlow || { status: 'idle' };
+    $('ghReposCard').hidden = !gh.connected;
+
+    if (!gh.installed) {
+      box.innerHTML = `<div class="text-center py-3"><i class="bi bi-github display-5"></i><h3 class="h5 mt-2">GitHub CLI não encontrado</h3>
+        <p class="text-body-secondary">O painel usa o GitHub CLI (<code>gh</code>) para se conectar. Instale e reinicie o agente:</p>
+        <code>winget install GitHub.cli</code></div>`;
+      return;
+    }
+    if (gh.connected) {
+      box.innerHTML = `<div class="d-flex align-items-center gap-3 flex-wrap">
+        <img src="${esc(gh.avatar)}" alt="" class="rounded-circle border" width="56" height="56">
+        <div class="flex-grow-1"><div class="fw-semibold fs-5">${esc(gh.name || gh.login)}</div><a href="${esc(gh.url)}" target="_blank" rel="noopener">@${esc(gh.login)}</a>
+          <div class="small text-body-secondary"><i class="bi bi-check-circle-fill text-success me-1"></i>Conectado. Clone, push e Pull Requests usam esta conta.</div></div>
+        <button class="btn btn-outline-danger" onclick="ghLogout()">Desconectar</button>
+      </div>`;
+      const owners = [gh.login, ...(gh.orgs || [])];
+      const sel = $('ghOwner');
+      const opts = owners.map((o, i) => `<option value="${i ? esc(o) : ''}">${esc(o)}</option>`).join('');
+      if (sel.dataset.opts !== opts) { sel.innerHTML = opts; sel.dataset.opts = opts; }
+      return;
+    }
+    if (flow.status === 'waiting') {
+      box.innerHTML = `<div class="text-center py-3"><i class="bi bi-github display-5"></i><h3 class="h5 mt-2">Autorize no navegador</h3>
+        ${flow.code ? `<div class="device-code border border-2 border-primary rounded-3 d-inline-block px-4 py-2 my-2">${esc(flow.code)}</div>
+          <ol class="text-start text-body-secondary mx-auto" style="max-width:420px"><li>Clique em <b>Copiar código e abrir GitHub</b>.</li><li>Cole o código na página do GitHub e confirme.</li><li>Volte aqui: a conexão é detectada sozinha.</li></ol>
+          <div class="d-flex gap-2 justify-content-center"><button class="btn btn-primary btn-lg" onclick="ghOpenDevice()"><i class="bi bi-clipboard me-1"></i>Copiar código e abrir GitHub</button><button class="btn btn-outline-secondary" onclick="ghCancel()">Cancelar</button></div>`
+          : '<p><span class="spinner-border spinner-border-sm me-2"></span>Gerando código…</p>'}
+        <p class="small text-body-secondary mt-3 mb-0"><span class="spinner-border spinner-border-sm me-2"></span>Aguardando autorização…</p></div>`;
+      return;
+    }
+    box.innerHTML = `<div class="text-center py-3"><i class="bi bi-github display-5"></i><h3 class="h5 mt-2">Conectar ao GitHub</h3>
+      <p class="text-body-secondary mx-auto" style="max-width:460px">Você vai receber um código para autorizar este computador na sua conta. Nenhuma senha é digitada aqui.</p>
+      ${flow.status === 'error' ? `<div class="alert alert-danger">${esc(flow.error)}</div>` : ''}
+      ${gh.error ? `<div class="alert alert-danger">${esc(gh.error)}</div>` : ''}
+      <button class="btn btn-primary btn-lg" onclick="ghLogin()"><i class="bi bi-github me-1"></i>Conectar ao GitHub</button></div>`;
+  }
+
+  async function ghLogin() {
+    try { await post('/api/github/login'); } catch (e) { toast(e.message); }
+    setTimeout(refreshGithub, 800);
+  }
+  async function ghCancel() {
+    try { await post('/api/github/login/cancel'); } catch {}
+    refreshGithub();
+  }
+  async function ghOpenDevice() {
+    const code = gh?.loginFlow?.code;
+    try { await navigator.clipboard.writeText(code); toast('Código copiado'); } catch { toast('Copie o código: ' + code); }
+    window.open(gh?.loginFlow?.url || 'https://github.com/login/device', '_blank', 'noopener');
+  }
+  async function ghLogout() {
+    if (!(await confirmBox('Desconectar a conta do GitHub deste computador? Vale também para o <code>git</code> e o <code>gh</code> no terminal.', { title: 'Desconectar GitHub', ok: 'Desconectar', danger: true }))) return;
+    try { await post('/api/github/logout'); toast('GitHub desconectado'); } catch (e) { toast(e.message); }
+    ghRepos = { owner: null, list: null, loading: false };
+    renderTargetSelect();
+    refreshGithub();
+  }
+
+  async function loadRepos(force) {
+    const owner = $('ghOwner').value || '';
+    if (!force && ghRepos.list && ghRepos.owner === owner) return renderRepos();
+    ghRepos.loading = true;
+    $('ghRepos').innerHTML = '<li class="list-group-item text-center text-body-secondary py-4"><span class="spinner-border spinner-border-sm me-2"></span>Carregando repositórios…</li>';
+    try {
+      const r = await post('/api/github/repos', { owner });
+      ghRepos = { owner, list: r.repos.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)), loading: false };
+    } catch (e) {
+      ghRepos.loading = false;
+      $('ghRepos').innerHTML = `<li class="list-group-item list-group-item-danger">${esc(e.message)}</li>`;
+      return;
+    }
+    renderRepos();
+    renderTargetSelect();
+  }
+
+  function renderRepos() {
+    const q = $('ghSearch').value.trim().toLowerCase();
+    const byRepo = new Map((window._state?.projects || []).map((p) => [repoKey(p.repo), p]));
+    const list = (ghRepos.list || []).filter((r) => !q || r.nameWithOwner.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q));
+    window._repoList = list;
+    $('ghRepos').innerHTML = list.length ? list.map((r, i) => {
+      const p = byRepo.get(r.nameWithOwner.toLowerCase());
+      return `<li class="list-group-item d-flex align-items-center gap-3">
+        <div class="flex-grow-1 min-w-0">
+          <span class="fw-semibold text-break">${esc(r.nameWithOwner)}</span> ${r.isPrivate ? '<span class="badge text-bg-secondary"><i class="bi bi-lock"></i> privado</span>' : ''} ${p ? `<span class="badge text-bg-success">no PC como ${esc(p.name)}</span>` : ''}
+          <div class="small text-body-secondary text-truncate" title="${esc(r.description || '')}">${esc(r.description || 'Sem descrição')}, atualizado ${ago(r.updatedAt)}</div>
+        </div>
+        <div class="d-flex gap-1 flex-shrink-0">
+          ${p ? `<button class="btn btn-sm btn-primary" onclick="chatWith('${esc(p.name)}')">Conversar</button>`
+              : `<button class="btn btn-sm btn-outline-secondary" onclick="cloneRepo(${i}, false)"><i class="bi bi-download me-1"></i>Baixar</button><button class="btn btn-sm btn-primary" onclick="cloneRepo(${i}, true)">Baixar e conversar</button>`}
+        </div>
+      </li>`;
+    }).join('') : `<li class="list-group-item text-center text-body-secondary py-4">${q ? 'Nenhum repositório com esse filtro.' : 'Nenhum repositório.'}</li>`;
+  }
+
+  async function cloneRepo(i, openIt) {
+    const r = window._repoList[i];
+    if (!r) return;
+    toast(`Baixando ${r.nameWithOwner}…`, 60000);
+    for (const b of $('ghRepos').querySelectorAll('button')) b.disabled = true;
+    try {
+      const res = await post('/api/projects/clone', { repo: r.nameWithOwner });
+      if ($('ghGroup').checked && window._state?.whatsapp.status === 'conectado') {
+        await post('/api/projects/group', { name: res.name }).catch((err) => toast(`Baixado, mas o grupo falhou: ${err.message}`));
+      }
+      toast(`Projeto ${res.name} pronto`);
+      await refresh();
+      renderRepos();
+      if (openIt) chatWith(res.name);
+    } catch (e) { toast(e.message); renderRepos(); }
+  }
+
+  $('ghOwner').addEventListener('change', () => loadRepos());
+  $('ghSearch').addEventListener('input', renderRepos);
+  $('ghGroup').checked = store.get('ghGroup') === '1';
+  $('ghGroup').addEventListener('change', (e) => store.set('ghGroup', e.target.checked ? '1' : ''));
+
+  showView(location.hash.slice(1) || 'chat');
+  refresh().then(() => { if (current && currentChat()) openChat(current); });
+  refreshGithub();
   setInterval(refresh, 2000);
 </script>
 </body>
